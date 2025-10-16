@@ -14,7 +14,7 @@
   </style>
 </head>
 <body>
-  <h1>ドレミ付き楽譜表示ツール v1.4</h1>
+  <h1>ドレミ付き楽譜表示ツール v1.31</h1>
 
   <div id="dropZone">
     ここに MusicXML ファイルをドラッグ＆ドロップ<br>
@@ -78,6 +78,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = async e => {
+      console.log("ファイル読み込み成功");
       const xml = processXML(e.target.result);
       await osmd.load(xml);
       await osmd.render();
