@@ -69,7 +69,7 @@ document.addEventListener("DOMContentLoaded", () => {
   let osmd;
   try {
     const container = document.getElementById("scoreContainer");
-    osmd = new OpenSheetMusicDisplay(container);
+    osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay(container);
     logStatus("OSMD初期化完了。ファイルを選択して「読み込み開始」を押してください。");
   } catch(err){
     logStatus("エラー: OSMD初期化に失敗しました。\n" + err.toString());
