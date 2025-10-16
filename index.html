@@ -14,7 +14,7 @@
   </style>
 </head>
 <body>
-  <h1>ドレミ付き楽譜表示ツール v1.3</h1>
+  <h1>ドレミ付き楽譜表示ツール v1.4</h1>
 
   <div id="dropZone">
     ここに MusicXML ファイルをドラッグ＆ドロップ<br>
@@ -27,9 +27,13 @@
   <button id="pdfBtn">PDFとして保存</button>
 
   <!-- ライブラリ -->
-  <script src="https://cdn.jsdelivr.net/npm/opensheetmusicdisplay@1.6.4/build/opensheetmusicdisplay.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+ <script src="https://cdn.jsdelivr.net/npm/opensheetmusicdisplay@1.6.4/build/opensheetmusicdisplay.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
+  window.jsPDF = window.jspdf.jsPDF;
+</script>
+
 
 <script>
 document.addEventListener("DOMContentLoaded", () => {
@@ -38,7 +42,6 @@ document.addEventListener("DOMContentLoaded", () => {
   );
   const dropZone = document.getElementById("dropZone");
   const fileInput = document.getElementById("fileInput");
-  window.jsPDF = window.jspdf.jsPDF; // Safari対応
 
   function toDoremi(step, alter, octave) {
     const base = {C:"ド", D:"レ", E:"ミ", F:"ファ", G:"ソ", A:"ラ", B:"シ"};
