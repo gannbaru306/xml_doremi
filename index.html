@@ -24,7 +24,7 @@
       border: 1px solid #ccc;
       margin-top: 1em;
     }
-    button {
+    button, input[type="file"] {
       margin-top: 1em;
       padding: 0.5em 1em;
       background: #0078d7;
@@ -36,11 +36,18 @@
     button:hover {
       background: #005ea6;
     }
+    input[type="file"] {
+      background: #fff;
+      color: #0078d7;
+      border: 2px solid #0078d7;
+    }
   </style>
 </head>
 <body>
   <h1>🎼 ドレミ付き楽譜表示ツール</h1>
   <div id="dropZone">ここに MusicXML ファイルをドラッグ＆ドロップ</div>
+  <p>またはファイルを選択：</p>
+  <input type="file" id="fileInput" accept=".xml,.musicxml" />
   <div id="scoreContainer"></div>
   <button id="pdfBtn">PDFとして保存</button>
 
@@ -51,6 +58,7 @@
 
   <script>
     const dropZone = document.getElementById("dropZone");
+    const fileInput = document.getElementById("fileInput");
     const scoreContainer = document.getElementById("scoreContainer");
     const osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay(scoreContainer);
 
@@ -99,32 +107,39 @@
       return serializer.serializeToString(xmlDoc);
     }
 
-    dropZone.addEventListener("dragover", e => {
-      e.preventDefault();
-      dropZone.style.background = "#e0f0ff";
-    });
-
-    dropZone.addEventListener("dragleave", () => {
-      dropZone.style.background = "#fff";
-    });
-
-    dropZone.addEventListener("drop", e => {
-      e.preventDefault();
-      dropZone.style.background = "#fff";
-      const file = e.dataTransfer.files[0];
+    function handleFile(file) {
       if (!file || !file.name.endsWith(".xml")) {
         alert("MusicXMLファイルを選択してください。");
         return;
       }
-
       const reader = new FileReader();
       reader.onload = evt => {
         const processed = processXML(evt.target.result);
         osmd.load(processed).then(() => osmd.render());
       };
       reader.readAsText(file);
+    }
+
+    // ドラッグ＆ドロップ対応
+    dropZone.addEventListener("dragover", e => {
+      e.preventDefault();
+      dropZone.style.background = "#e0f0ff";
+    });
+    dropZone.addEventListener("dragleave", () => {
+      dropZone.style.background = "#fff";
+    });
+    dropZone.addEventListener("drop", e => {
+      e.preventDefault();
+      dropZone.style.background = "#fff";
+      handleFile(e.dataTransfer.files[0]);
     });
 
+    // ファイル選択対応
+    fileInput.addEventListener("change", e => {
+      handleFile(e.target.files[0]);
+    });
+
+    // PDF出力
     document.getElementById("pdfBtn").onclick = () => {
       html2canvas(scoreContainer).then(canvas => {
         const { jsPDF } = window.jspdf;
