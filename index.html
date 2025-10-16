@@ -133,7 +133,9 @@
       const reader = new FileReader();
       reader.onload = evt => {
         const processed = processXML(evt.target.result);
-        osmd.load(processed).then(() => osmd.render());
+        osmd.load(processed).then(() =>
+          osmd.render());
+         document.getElementById("statusMessage").textContent = `読み込み完了:${file.name}`;
       };
       reader.readAsText(file);
     }
@@ -170,7 +172,6 @@ document.getElementById("pdfBtn").onclick = () => {
   });
 };
 
- document.getElementById("statusMessage").textContent = `読み込み完了:${file.name}`;
 
   </script>
 </body>
