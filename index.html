@@ -1,53 +1,108 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<meta charset="UTF-8" />
-<title>MIDI → ドレミ付き MusicXML 変換（動作修正版）</title>
+<meta charset="utf-8" />
+<title>MIDI → ドレミ付き MusicXML（フォールバック付き）</title>
 <style>
-body { font-family: sans-serif; padding: 2em; background: #f7f7f7; }
-h1 { color: #333; }
-pre { white-space: pre-wrap; font-family: monospace; background: #fff; padding:1em; border-radius:6px; max-height:400px; overflow:auto; }
-button { margin-top: 1em; padding: 0.6em 1.2em; border: none; background: #0078d7; color: white; border-radius: 6px; cursor: pointer; }
-button:hover { background: #005ea6; }
+body{font-family:system-ui,-apple-system,"Noto Sans JP",sans-serif;padding:18px;background:#f5f7fb}
+pre{background:#fff;border-radius:8px;padding:12px;overflow:auto;max-height:360px}
+button{padding:8px 12px;margin:6px 0;background:#0078d7;color:#fff;border:none;border-radius:6px;cursor:pointer}
+#err{color:#b00;margin-top:8px}
 </style>
 </head>
 <body>
-<h1>🎵 MIDI → ドレミ付き MusicXML 変換2</h1>
-<input type="file" id="fileInput" accept=".mid,.midi" />
+<h2>デバッグ & 変換（フォールバック付き）</h2>
+<p>まず <input type="file" id="fileInput" accept=".mid,.midi" /> を選び、「変換」を押してください。</p>
 <button id="convertBtn">変換</button>
-<a id="downloadLink" style="display:none;">score_doremi.xml をダウンロード</a>
-<pre id="preview"></pre>
-
-<!-- ✅ 安定版 MIDI パーサー -->
-<script src="https://cdn.jsdelivr.net/gh/colxi/midi-parser-js@2.1.4/dist/MidiParser.min.js"></script>
+<a id="downloadLink" style="display:none;margin-left:10px;">score_doremi.xml をダウンロード</a>
+<div id="err"></div>
+<pre id="preview">プレビューがここに表示されます...</pre>
 
 <script>
+const CDN_TRIES = [
+  "https://cdn.jsdelivr.net/gh/colxi/midi-parser-js@2.1.4/dist/MidiParser.min.js",
+  "https://unpkg.com/midi-parser-js@2.1.4/dist/MidiParser.min.js"
+];
+
+function loadScriptWithFallback(urls) {
+  return new Promise((resolve, reject) => {
+    let i = 0;
+    function tryNext() {
+      if (i >= urls.length) {
+        // 最後のフォールバック: fetchしてeval（CORSで失敗することもある）
+        const last = "https://cdn.jsdelivr.net/gh/colxi/midi-parser-js@2.1.4/dist/MidiParser.min.js";
+        fetch(last).then(r => {
+          if (!r.ok) throw new Error('fetch fail: ' + r.status);
+          return r.text();
+        }).then(text => {
+          try { eval(text); if (typeof MidiParser !== 'undefined') return resolve(); } catch(e) {}
+          reject(new Error('すべてのCDN読み込みに失敗しました（fetch→evalも失敗）'));
+        }).catch(err => reject(err));
+        return;
+      }
+      const url = urls[i++];
+      const s = document.createElement('script');
+      s.src = url;
+      s.onload = () => { if (typeof MidiParser !== 'undefined') return resolve(); else tryNext(); };
+      s.onerror = () => { tryNext(); };
+      document.head.appendChild(s);
+    }
+    tryNext();
+  });
+}
+
 function midiNoteToPitch(noteNum) {
   const names = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
   const step = names[noteNum % 12];
   const octave = Math.floor(noteNum / 12) - 1;
   return { step, octave };
 }
-
 function toDoremi(step, octave) {
   const map = {C:"ド", "C#":"ド#", D:"レ", "D#":"レ#", E:"ミ", F:"ファ", "F#":"ファ#", G:"ソ", "G#":"ソ#", A:"ラ", "A#":"ラ#", B:"シ"};
   const name = map[step] || step;
-  if (octave < 4) return name + "\n＿";  // 低音
-  if (octave > 5) return "＿\n" + name; // 高音
+  if (octave < 4) return name + "\n＿";
+  if (octave > 5) return "＿\n" + name;
   return name;
 }
 
-document.getElementById("convertBtn").onclick = () => {
-  const file = document.getElementById("fileInput").files[0];
-  if (!file) return alert("MIDIファイルを選択してください。");
+const errEl = document.getElementById('err');
+const preview = document.getElementById('preview');
+const dl = document.getElementById('downloadLink');
+
+async function ensureParser() {
+  if (typeof MidiParser !== 'undefined') return;
+  errEl.textContent = 'MidiParser 未ロード。CDNから読み込みを試みます...';
+  try {
+    await loadScriptWithFallback(CDN_TRIES);
+    errEl.textContent = 'MidiParser 読み込み成功';
+    console.log('MidiParser loaded:', !!window.MidiParser);
+  } catch (e) {
+    errEl.textContent = 'ライブラリ読み込みに失敗しました。ConsoleのNetworkとエラーを確認してください。';
+    console.error('ライブラリ読み込み失敗', e);
+    throw e;
+  }
+}
+
+document.getElementById('convertBtn').addEventListener('click', async () => {
+  preview.textContent = '';
+  dl.style.display = 'none';
+  errEl.textContent = '';
+
+  try {
+    await ensureParser();
+  } catch (e) {
+    return;
+  }
+
+  const file = document.getElementById('fileInput').files[0];
+  if (!file) { errEl.textContent = 'ファイルを選択して下さい (.mid/.midi)'; return; }
 
   const reader = new FileReader();
   reader.onload = e => {
     try {
       const array = new Uint8Array(e.target.result);
       const midi = MidiParser.parse(array);
-
-      if (!midi || !midi.track) throw new Error("MIDIデータを解析できませんでした。");
+      if (!midi || !midi.track) throw new Error('MIDI解析に失敗しました');
 
       let xml = `<?xml version="1.0" encoding="UTF-8"?>
 <score-partwise version="3.1">
@@ -57,7 +112,7 @@ document.getElementById("convertBtn").onclick = () => {
 
       for (let track of midi.track) {
         for (let event of track.event) {
-          if (event.type === 9 && event.data[1] > 0) { // Note On
+          if (event.type === 9 && event.data[1] > 0) {
             const { step, octave } = midiNoteToPitch(event.data[0]);
             const doremi = toDoremi(step, octave);
             xml += `
@@ -73,26 +128,21 @@ document.getElementById("convertBtn").onclick = () => {
           }
         }
       }
-
-      xml += `
-  </measure>
- </part>
-</score-partwise>`;
+      xml += `\n  </measure>\n </part>\n</score-partwise>`;
 
       const blob = new Blob([xml], {type: "application/xml;charset=utf-8"});
       const url = URL.createObjectURL(blob);
-      const link = document.getElementById("downloadLink");
-      link.href = url;
-      link.download = "score_doremi.xml";
-      link.style.display = "inline";
-      document.getElementById("preview").textContent = xml.slice(0, 1500) + "\n...(省略)...";
+      dl.href = url;
+      dl.download = "score_doremi.xml";
+      dl.style.display = 'inline';
+      preview.textContent = xml.slice(0,1500) + "\n...(省略)...";
     } catch (err) {
-      alert("エラー: " + err.message);
+      errEl.textContent = '変換中にエラーが発生しました（Console参照）';
       console.error(err);
     }
   };
   reader.readAsArrayBuffer(file);
-};
+});
 </script>
 </body>
 </html>
