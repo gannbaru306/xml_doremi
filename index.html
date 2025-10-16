@@ -32,6 +32,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
 <script>
+document.addEventListener("DOMContentLoaded", () => {
   const osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay(
     document.getElementById("scoreContainer")
   );
@@ -39,79 +40,71 @@
   const fileInput = document.getElementById("fileInput");
   window.jsPDF = window.jspdf.jsPDF; // Safari対応
 
-    function toDoremi(step, alter, octave) {
-      const base = {C:"ド", D:"レ", E:"ミ", F:"ファ", G:"ソ", A:"ラ", B:"シ"};
-      let name = base[step] || step;
-      if (alter === 1) name += "#";
-      if (alter === -1) name += "♭";
-      const offset = octave - 4 + 2;
-      const superscript = ["⁻¹","⁰","¹","²","³","⁴","⁵","⁶","⁷","⁸"][offset] || `(${octave})`;
-      return name + superscript;
-    }
-
-    function processXML(xmlText) {
-      const parser = new DOMParser();
-      const xmlDoc = parser.parseFromString(xmlText, "text/xml");
-      const notes = xmlDoc.getElementsByTagName("note");
-      let chordOffset = 0;
-      for (let i = 0; i < notes.length; i++) {
-        const n = notes[i];
-        const pitch = n.getElementsByTagName("pitch")[0];
-        if (pitch) {
-          const step = pitch.getElementsByTagName("step")[0]?.textContent;
-          const alter = parseInt(pitch.getElementsByTagName("alter")[0]?.textContent || 0);
-          const octave = parseInt(pitch.getElementsByTagName("octave")[0]?.textContent || 4);
-          const lyricText = toDoremi(step, alter, octave);
-          const lyric = xmlDoc.createElement("lyric");
-          const text = xmlDoc.createElement("text");
-          text.textContent = lyricText;
-          lyric.appendChild(text);
-          n.appendChild(lyric);
-        }
-      }
-      return new XMLSerializer().serializeToString(xmlDoc);
-    }
-
-    function handleFile(file) {
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = async e => {
-        const xml = processXML(e.target.result);
-        await osmd.load(xml);
-        await osmd.render();
-        document.getElementById("statusMessage").textContent = `読み込み完了: ${file.name}`;
-      };
-      reader.readAsText(file);
-    }
-
-    dropZone.addEventListener("dragover", e => e.preventDefault());
-    dropZone.addEventListener("drop", e => {
-      e.preventDefault();
-      handleFile(e.dataTransfer.files[0]);
-    });
-    fileInput.addEventListener("change", e => handleFile(e.target.files[0]));
-
-  window.jsPDF = window.jspdf.jsPDF;
-
-document.getElementById("pdfBtn").onclick = async () => {
-  const canvas = await html2canvas(scoreContainer, { scale: 2, useCORS: true });
-
-  // jsPDFの安全な取得
-  const jsPDFConstructor = window.jspdf?.jsPDF || window.jsPDF;
-  if (!jsPDFConstructor) {
-    alert("jsPDFが正しく読み込まれていません。");
-    console.error("jsPDF not found:", window.jspdf, window.jsPDF);
-    return;
+  function toDoremi(step, alter, octave) {
+    const base = {C:"ド", D:"レ", E:"ミ", F:"ファ", G:"ソ", A:"ラ", B:"シ"};
+    let name = base[step] || step;
+    if (alter === 1) name += "#";
+    if (alter === -1) name += "♭";
+    const offset = octave - 4 + 2;
+    const superscript = ["⁻¹","⁰","¹","²","³","⁴","⁵","⁶","⁷","⁸"][offset] || `(${octave})`;
+    return name + superscript;
   }
 
-  const pdf = new jsPDFConstructor();
-  const imgData = canvas.toDataURL("image/png");
-  const pdfWidth = pdf.internal.pageSize.getWidth();
-  const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
-  pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight);
+  function processXML(xmlText) {
+    const parser = new DOMParser();
+    const xmlDoc = parser.parseFromString(xmlText, "text/xml");
+    const notes = xmlDoc.getElementsByTagName("note");
+    for (let n of notes) {
+      const pitch = n.getElementsByTagName("pitch")[0];
+      if (pitch) {
+        const step = pitch.getElementsByTagName("step")[0]?.textContent;
+        const alter = parseInt(pitch.getElementsByTagName("alter")[0]?.textContent || 0);
+        const octave = parseInt(pitch.getElementsByTagName("octave")[0]?.textContent || 4);
+        const lyricText = toDoremi(step, alter, octave);
+        const lyric = xmlDoc.createElement("lyric");
+        const text = xmlDoc.createElement("text");
+        text.textContent = lyricText;
+        lyric.appendChild(text);
+        n.appendChild(lyric);
+      }
+    }
+    return new XMLSerializer().serializeToString(xmlDoc);
+  }
 
-  pdf.save("score_doremi.pdf");
-};
+  function handleFile(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async e => {
+      const xml = processXML(e.target.result);
+      await osmd.load(xml);
+      await osmd.render();
+      document.getElementById("statusMessage").textContent = `読み込み完了: ${file.name}`;
+    };
+    reader.readAsText(file);
+  }
+
+  dropZone.addEventListener("dragover", e => e.preventDefault());
+  dropZone.addEventListener("drop", e => {
+    e.preventDefault();
+    handleFile(e.dataTransfer.files[0]);
+  });
+  fileInput.addEventListener("change", e => handleFile(e.target.files[0]));
+
+  document.getElementById("pdfBtn").onclick = async () => {
+    const canvas = await html2canvas(scoreContainer, { scale: 2, useCORS: true });
+    const jsPDFConstructor = window.jspdf?.jsPDF || window.jsPDF;
+    if (!jsPDFConstructor) {
+      alert("jsPDFが正しく読み込まれていません。");
+      return;
+    }
+    const pdf = new jsPDFConstructor();
+    const imgData = canvas.toDataURL("image/png");
+    const pdfWidth = pdf.internal.pageSize.getWidth();
+    const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+    pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight);
+    pdf.save("score_doremi.pdf");
+  };
+});
 </script>
 </body>
 </html>
