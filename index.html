@@ -2,100 +2,84 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MusicXML ドレミ追加ツール</title>
+<title>MIDI → ドレミ付き MusicXML 変換</title>
 <style>
-body {
-  font-family: sans-serif;
-  padding: 2em;
-  background: #f7f7f7;
-}
-h1 {
-  color: #444;
-}
-textarea {
-  width: 100%;
-  height: 200px;
-  font-family: monospace;
-}
-button {
-  margin-top: 1em;
-  padding: 0.5em 1em;
-  border: none;
-  background: #0078d7;
-  color: white;
-  border-radius: 6px;
-  cursor: pointer;
-}
-button:hover {
-  background: #005ea6;
-}
+body { font-family: sans-serif; padding: 2em; background: #f7f7f7; }
+h1 { color: #333; }
+pre { white-space: pre-wrap; font-family: monospace; }
+button { margin-top: 1em; padding: 0.6em 1.2em; border: none; background: #0078d7; color: white; border-radius: 6px; cursor: pointer; }
+button:hover { background: #005ea6; }
 </style>
 </head>
 <body>
-<h1>🎵 MusicXML にドレミを自動追加</h1>
-<p>MusicXML ファイルを選択してください。</p>
-<input type="file" id="fileInput" accept=".xml,.musicxml" />
-<button id="processBtn">ドレミ付きXMLを生成</button>
-
-<h2>出力結果</h2>
+<h1>🎵 MIDI → ドレミ付き MusicXML 変換</h1>
+<input type="file" id="fileInput" accept=".mid,.midi" />
+<button id="convertBtn">変換</button>
 <a id="downloadLink" style="display:none;">score_doremi.xml をダウンロード</a>
 <pre id="preview"></pre>
 
+<script src="https://cdn.jsdelivr.net/npm/midi-parser-js/dist/MidiParser.min.js"></script>
 <script>
-function toDoremi(step, alter, octave) {
-  const base = {C:"ド", D:"レ", E:"ミ", F:"ファ", G:"ソ", A:"ラ", B:"シ"};
-  let name = base[step] || step;
-  if (alter == 1) name += "#";
-  if (alter == -1) name += "♭";
-
-  if (octave < 4) return name + "\n＿"; // 低い音
-  else if (octave > 5) return "＿\n" + name; // 高い音
-  else return name;
+function midiNoteToPitch(noteNum) {
+  const names = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+  const step = names[noteNum % 12];
+  const octave = Math.floor(noteNum / 12) - 1;
+  return { step, octave };
 }
 
-document.getElementById("processBtn").onclick = () => {
+function toDoremi(step, octave) {
+  const map = {C:"ド", "C#":"ド#", D:"レ", "D#":"レ#", E:"ミ", F:"ファ", "F#":"ファ#", G:"ソ", "G#":"ソ#", A:"ラ", "A#":"ラ#", B:"シ"};
+  const name = map[step] || step;
+  if (octave < 4) return name + "\n＿";  // 低い音
+  if (octave > 5) return "＿\n" + name; // 高い音
+  return name;
+}
+
+document.getElementById("convertBtn").onclick = () => {
   const file = document.getElementById("fileInput").files[0];
-  if (!file) {
-    alert("MusicXMLファイルを選択してください。");
-    return;
-  }
+  if (!file) return alert("MIDIファイルを選択してください。");
 
   const reader = new FileReader();
   reader.onload = e => {
-    const parser = new DOMParser();
-    const xmlDoc = parser.parseFromString(e.target.result, "text/xml");
-    const notes = xmlDoc.getElementsByTagName("note");
+    const midi = MidiParser.parse(e.target.result);
 
-    for (let n of notes) {
-      const pitch = n.getElementsByTagName("pitch")[0];
-      if (pitch) {
-        const step = pitch.getElementsByTagName("step")[0]?.textContent;
-        const alter = parseInt(pitch.getElementsByTagName("alter")[0]?.textContent || 0);
-        const octave = parseInt(pitch.getElementsByTagName("octave")[0]?.textContent || 4);
-        const lyricText = toDoremi(step, alter, octave);
+    let xml = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1">
+ <part-list><score-part id="P1"><part-name>Music</part-name></score-part></part-list>
+ <part id="P1">
+`;
 
-        const lyric = xmlDoc.createElement("lyric");
-        const text = xmlDoc.createElement("text");
-        text.textContent = lyricText;
-        lyric.appendChild(text);
-        n.appendChild(lyric);
+    for (let track of midi.track) {
+      for (let event of track.event) {
+        if (event.type === 9) { // Note on
+          const { step, octave } = midiNoteToPitch(event.data[0]);
+          const doremi = toDoremi(step, octave);
+          xml += `
+  <measure>
+    <note>
+      <pitch>
+        <step>${step.replace("#","")}</step>
+        ${step.includes("#") ? "<alter>1</alter>" : ""}
+        <octave>${octave}</octave>
+      </pitch>
+      <duration>1</duration>
+      <lyric><text>${doremi}</text></lyric>
+    </note>
+  </measure>`;
+        }
       }
     }
 
-    const serializer = new XMLSerializer();
-    const output = serializer.serializeToString(xmlDoc);
-    document.getElementById("preview").textContent = output.substring(0, 2000) + "\n...\n";
-
-    const blob = new Blob([output], {type: "application/xml"});
+    xml += "\n </part>\n</score-partwise>";
+    const blob = new Blob([xml], {type: "application/xml"});
     const url = URL.createObjectURL(blob);
     const link = document.getElementById("downloadLink");
     link.href = url;
     link.download = "score_doremi.xml";
     link.style.display = "inline";
-    link.textContent = "score_doremi.xml をダウンロード";
+    document.getElementById("preview").textContent = xml.substring(0, 2000) + "\n...";
   };
-  reader.readAsText(file);
+  reader.readAsArrayBuffer(file);
 };
 </script>
 </body>
