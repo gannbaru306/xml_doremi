@@ -14,7 +14,7 @@
   </style>
 </head>
 <body>
-  <h1>ドレミ付き楽譜表示ツール v1.</h1>
+  <h1>ドレミ付き楽譜表示ツール v1.3</h1>
 
   <div id="dropZone">
     ここに MusicXML ファイルをドラッグ＆ドロップ<br>
@@ -31,12 +31,13 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
-  <script>
-    const osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay("scoreContainer");
-    const dropZone = document.getElementById("dropZone");
-    const fileInput = document.getElementById("fileInput");
-
-    window.jsPDF = window.jspdf.jsPDF; // Safari対応
+<script>
+  const osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay(
+    document.getElementById("scoreContainer")
+  );
+  const dropZone = document.getElementById("dropZone");
+  const fileInput = document.getElementById("fileInput");
+  window.jsPDF = window.jspdf.jsPDF; // Safari対応
 
     function toDoremi(step, alter, octave) {
       const base = {C:"ド", D:"レ", E:"ミ", F:"ファ", G:"ソ", A:"ラ", B:"シ"};
@@ -94,15 +95,22 @@
 
 document.getElementById("pdfBtn").onclick = async () => {
   const canvas = await html2canvas(scoreContainer, { scale: 2, useCORS: true });
-  const pdf = new jsPDF();
+
+  // jsPDFの安全な取得
+  const jsPDFConstructor = window.jspdf?.jsPDF || window.jsPDF;
+  if (!jsPDFConstructor) {
+    alert("jsPDFが正しく読み込まれていません。");
+    console.error("jsPDF not found:", window.jspdf, window.jsPDF);
+    return;
+  }
+
+  const pdf = new jsPDFConstructor();
   const imgData = canvas.toDataURL("image/png");
   const pdfWidth = pdf.internal.pageSize.getWidth();
   const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
   pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight);
 
-  const blob = pdf.output("blob");
-  const url = URL.createObjectURL(blob);
-  window.open(url);
+  pdf.save("score_doremi.pdf");
 };
 </script>
 </body>
