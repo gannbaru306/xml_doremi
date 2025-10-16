@@ -6,7 +6,7 @@
 <style>
 body { font-family: sans-serif; padding: 2em; background: #f7f7f7; }
 h1 { color: #333; }
-pre { white-space: pre-wrap; font-family: monospace; }
+pre { white-space: pre-wrap; font-family: monospace; background:#fff; padding:1em; border-radius:8px; }
 button { margin-top: 1em; padding: 0.6em 1.2em; border: none; background: #0078d7; color: white; border-radius: 6px; cursor: pointer; }
 button:hover { background: #005ea6; }
 </style>
@@ -18,7 +18,9 @@ button:hover { background: #005ea6; }
 <a id="downloadLink" style="display:none;">score_doremi.xml をダウンロード</a>
 <pre id="preview"></pre>
 
-<script src="https://cdn.jsdelivr.net/npm/midi-parser-js/dist/MidiParser.min.js"></script>
+<!-- ✅ 安定したバージョンのライブラリ -->
+<script src="https://cdn.jsdelivr.net/gh/colxi/midi-parser-js@2.1.4/dist/MidiParser.min.js"></script>
+
 <script>
 function midiNoteToPitch(noteNum) {
   const names = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
@@ -30,8 +32,8 @@ function midiNoteToPitch(noteNum) {
 function toDoremi(step, octave) {
   const map = {C:"ド", "C#":"ド#", D:"レ", "D#":"レ#", E:"ミ", F:"ファ", "F#":"ファ#", G:"ソ", "G#":"ソ#", A:"ラ", "A#":"ラ#", B:"シ"};
   const name = map[step] || step;
-  if (octave < 4) return name + "\n＿";  // 低い音
-  if (octave > 5) return "＿\n" + name; // 高い音
+  if (octave < 4) return name + "\n＿";  // 低音
+  if (octave > 5) return "＿\n" + name; // 高音
   return name;
 }
 
@@ -41,21 +43,22 @@ document.getElementById("convertBtn").onclick = () => {
 
   const reader = new FileReader();
   reader.onload = e => {
-    const midi = MidiParser.parse(e.target.result);
+    // ✅ ArrayBuffer → Uint8Array に修正
+    const array = new Uint8Array(e.target.result);
+    const midi = MidiParser.parse(array);
 
     let xml = `<?xml version="1.0" encoding="UTF-8"?>
 <score-partwise version="3.1">
  <part-list><score-part id="P1"><part-name>Music</part-name></score-part></part-list>
  <part id="P1">
-`;
+  <measure number="1">`;
 
     for (let track of midi.track) {
       for (let event of track.event) {
-        if (event.type === 9) { // Note on
+        if (event.type === 9 && event.data[1] > 0) { // Note On
           const { step, octave } = midiNoteToPitch(event.data[0]);
           const doremi = toDoremi(step, octave);
           xml += `
-  <measure>
     <note>
       <pitch>
         <step>${step.replace("#","")}</step>
@@ -64,20 +67,23 @@ document.getElementById("convertBtn").onclick = () => {
       </pitch>
       <duration>1</duration>
       <lyric><text>${doremi}</text></lyric>
-    </note>
-  </measure>`;
+    </note>`;
         }
       }
     }
 
-    xml += "\n </part>\n</score-partwise>";
-    const blob = new Blob([xml], {type: "application/xml"});
+    xml += `
+  </measure>
+ </part>
+</score-partwise>`;
+
+    const blob = new Blob([xml], {type: "application/xml;charset=utf-8"});
     const url = URL.createObjectURL(blob);
     const link = document.getElementById("downloadLink");
     link.href = url;
     link.download = "score_doremi.xml";
     link.style.display = "inline";
-    document.getElementById("preview").textContent = xml.substring(0, 2000) + "\n...";
+    document.getElementById("preview").textContent = xml.slice(0, 1000) + "\n...(省略)...";
   };
   reader.readAsArrayBuffer(file);
 };
