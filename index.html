@@ -12,7 +12,7 @@
   </style>
 </head>
 <body>
-  <h1>xml→ドレミ付き楽譜生成</h1>
+  <h1>xml→ドレミ付き楽譜</h1>
 
   <div>
     <!-- 透明にして重ねる方式は避ける（iPadの不具合回避） -->
@@ -144,32 +144,34 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   const pdfBtn = document.getElementById("pdfBtn");
-  pdfBtn.addEventListener("click", async () => {
-    try {
-      logStatus("PDF処理：キャプチャ開始...これには数秒かかる場合があります");
-      const canvas = await html2canvas(document.getElementById("scoreContainer"), {scale:1, useCORS:true});
-      logStatus("キャプチャ完了。PDF生成中...");
-      const jsPDFConstructor = window.jspdf?.jsPDF || window.jsPDF;
-      if(!jsPDFConstructor){
-        logStatus("エラー: jsPDF が利用できません。");
-        return;
-      }
-      const pdf = new jsPDFConstructor();
-      const img = canvas.toDataURL("image/png");
-      const w = pdf.internal.pageSize.getWidth();
-      const h = (canvas.height * w) / canvas.width;
-      pdf.addImage(img, "PNG", 0, 0, w, h);
-      // iPadでは保存より新タブでプレビューする方が確実
-      const blob = pdf.output("blob");
-      const url = URL.createObjectURL(blob);
-      logStatus("PDF生成完了。");
-      pdf.save("score.pdf");
-    } catch(e){
-      logStatus("PDF生成でエラー: " + e.toString());
-    }
-  });
+ pdfBtn.addEventListener("click", async () => {
+  try {
+    logStatus("PDF処理：SVG直接変換中...");
 
+    const svg = document.querySelector("#scoreContainer svg");
+    if (!svg) {
+      logStatus("エラー: 楽譜SVGが見つかりません。まず楽譜を表示してください。");
+      return;
+    }
+
+    const jsPDFConstructor = window.jspdf?.jsPDF || window.jsPDF;
+    if (!jsPDFConstructor) {
+      logStatus("エラー: jsPDF が利用できません。");
+      return;
+    }
+
+    const pdf = new jsPDFConstructor("p", "pt", "a4");
+
+    // SVG→PDF変換
+    await pdf.svg(svg, { x: 0, y: 0, width: 600, height: 800 });
+
+    pdf.save("score_doremi.pdf");
+    logStatus("PDF生成完了！");
+  } catch (e) {
+    logStatus("PDF生成でエラー: " + e.toString());
+  }
 });
+
 </script>
 </body>
 </html>
