@@ -45,10 +45,10 @@ document.addEventListener("DOMContentLoaded", () => {
   logStatus("ライブラリ読み込みチェック中...");
 
   // ライブラリ存在チェック（見える化）
-  if(!window.opensheetmusicdisplay){
-    logStatus("エラー: OpenSheetMusicDisplay が読み込まれていません。ネット接続を確認してください。");
-    return;
-  }
+  if(!window.OpenSheetMusicDisplay){
+  logStatus("エラー: OpenSheetMusicDisplay が読み込まれていません。ネット接続を確認してください。");
+  return;
+}
   if(!window.html2canvas){
     logStatus("エラー: html2canvas が読み込まれていません。");
     return;
@@ -63,7 +63,7 @@ document.addEventListener("DOMContentLoaded", () => {
   let osmd;
   try {
     const container = document.getElementById("scoreContainer");
-    osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay(container);
+    osmd = new OpenSheetMusicDisplay(container);
     logStatus("OSMD初期化完了。ファイルを選択して「読み込み開始」を押してください。");
   } catch(err){
     logStatus("エラー: OSMD初期化に失敗しました。\n" + err.toString());
