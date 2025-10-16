@@ -7,7 +7,7 @@
   <style>
     body{font-family:sans-serif;padding:1.5em;background:#f4f7fb;text-align:center}
     #scoreContainer{background:#fff;border:1px solid #ccc;min-height:220px;padding:1em;margin:1em auto;max-width:900px}
-    #status{white-space:pre-line;text-align:left;max-width:900px;margin:0 auto;background:#fff;border:1px solid #ddd;padding:0.6em}
+    #status{white-space:pre-line;text-align:left;max-width:900px;margin:0 auto;background:#fff;border:1px solid #ddd;padding:0.6em;height:200px;overflow-y:auto;}
     input,button{padding:0.6em 1em;margin:0.4em}
   </style>
 </head>
@@ -20,7 +20,7 @@
     <button id="pdfBtn">PDFプレビュー / 保存</button>
   </div>
 
-  <p id="status">待機中</p>
+  <p id="status">待機</p>
 
   <div id="scoreContainer"></div>
 
@@ -32,22 +32,29 @@
 <script>
 document.addEventListener("DOMContentLoaded", () => {
   const statusEl = document.getElementById("status");
-  function logStatus(s){ statusEl.textContent = (new Date()).toLocaleTimeString() + " — " + s; }
+  const logBuffer = [];
+  const MAX_LOG = 50; // ログ履歴最大数
 
-  // Safari対応でjsPDFを確保
-  try {
-    window.jsPDF = window.jspdf && window.jspdf.jsPDF ? window.jspdf.jsPDF : window.jsPDF;
-  } catch(e){
-    // nothing
+  function logStatus(s){
+    const time = (new Date()).toLocaleTimeString();
+    logBuffer.push(`${time} — ${s}`);
+    if(logBuffer.length > MAX_LOG) logBuffer.shift();
+    statusEl.textContent = logBuffer.join("\n");
   }
+
+  // JS例外も表示（グローバル）
+  window.onerror = function(message, source, lineno, colno, error){
+    logStatus(`JSエラー: ${message} (${source}:${lineno}:${colno})`);
+    if(error && error.stack) logStatus("Stack:\n" + error.stack);
+  };
 
   logStatus("ライブラリ読み込みチェック中...");
 
-  // ライブラリ存在チェック（見える化）
+  // ライブラリ存在チェック
   if(!window.OpenSheetMusicDisplay){
-  logStatus("エラー: OpenSheetMusicDisplay が読み込まれていません。ネット接続を確認してください。");
-  return;
-}
+    logStatus("エラー: OpenSheetMusicDisplay が読み込まれていません。ネット接続を確認してください。");
+    return;
+  }
   if(!window.html2canvas){
     logStatus("エラー: html2canvas が読み込まれていません。");
     return;
@@ -58,7 +65,7 @@ document.addEventListener("DOMContentLoaded", () => {
     logStatus("ライブラリ読み込みOK。OSMD初期化します...");
   }
 
-  // OSMD 初期化（DOM確実参照）
+  // OSMD 初期化
   let osmd;
   try {
     const container = document.getElementById("scoreContainer");
@@ -66,10 +73,11 @@ document.addEventListener("DOMContentLoaded", () => {
     logStatus("OSMD初期化完了。ファイルを選択して「読み込み開始」を押してください。");
   } catch(err){
     logStatus("エラー: OSMD初期化に失敗しました。\n" + err.toString());
+    if(err.stack) logStatus("Stack:\n" + err.stack);
     return;
   }
 
-  // 変換ヘルパー（ドレミ付与）
+  // ドレミ変換
   function toDoremi(step, alter, octave){
     const base = {C:"ド", D:"レ", E:"ミ", F:"ファ", G:"ソ", A:"ラ", B:"シ"};
     let name = base[step] || step;
@@ -82,12 +90,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function processXML(xmlText){
     try{
+      logStatus("XMLパース開始...");
       const parser = new DOMParser();
       const xmlDoc = parser.parseFromString(xmlText,"text/xml");
       // check parseerror
       const pe = xmlDoc.getElementsByTagName("parsererror");
       if(pe.length) throw new Error("XML parse error");
       const notes = xmlDoc.getElementsByTagName("note");
+      logStatus(`noteタグ検出: ${notes.length}件`);
       for(let i=0;i<notes.length;i++){
         const n = notes[i];
         const pitch = n.getElementsByTagName("pitch")[0];
@@ -103,9 +113,12 @@ document.addEventListener("DOMContentLoaded", () => {
           n.appendChild(lyric);
         }
       }
+      logStatus("XMLドレミ加工完了");
       return new XMLSerializer().serializeToString(xmlDoc);
     } catch(e){
-      throw new Error("processXML失敗: " + e.message);
+      logStatus("processXML失敗: " + e.message);
+      if(e.stack) logStatus("Stack:\n" + e.stack);
+      throw e;
     }
   }
 
@@ -135,84 +148,86 @@ document.addEventListener("DOMContentLoaded", () => {
         logStatus("レンダリング完了：楽譜が表示されました。 (" + file.name + ")");
       } catch(err){
         logStatus("読み込み/描画エラー:\n" + err.toString());
+        if(err.stack) logStatus("Stack:\n" + err.stack);
       }
     };
 
-    // iPadでの文字コード問題回避
     reader.readAsText(file, "UTF-8");
   });
 
-const pdfBtn = document.getElementById("pdfBtn");
-pdfBtn.addEventListener("click", async () => {
-  try {
-    logStatus("PDF処理：SVG→PNG変換中...");
+  const pdfBtn = document.getElementById("pdfBtn");
+  pdfBtn.addEventListener("click", async () => {
+    try {
+      logStatus("PDF処理：SVG→PNG変換中...");
 
-    const svg = document.querySelector("#scoreContainer svg");
-    if (!svg) {
-      logStatus("エラー: 楽譜SVGが見つかりません。まず楽譜を読み込んでください。");
-      return;
-    }
-
-    async function svgToPngDataUrl(svgElement, width, height) {
-      const serializer = new XMLSerializer();
-      let svgString = serializer.serializeToString(svgElement);
-      if (!svgString.match(/^<svg[^>]+xmlns="http:\/\/www\.w3\.org\/2000\/svg"/)) {
-        svgString = svgString.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
+      const svg = document.querySelector("#scoreContainer svg");
+      if (!svg) {
+        logStatus("エラー: 楽譜SVGが見つかりません。まず楽譜を読み込んでください。");
+        return;
       }
-      svgString = svgString.replace(/<svg([^>]*)>/, `<svg$1><rect width="100%" height="100%" fill="#ffffff"/>`);
 
-      const blob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
+      async function svgToPngDataUrl(svgElement, width, height) {
+        const serializer = new XMLSerializer();
+        let svgString = serializer.serializeToString(svgElement);
+        if (!svgString.match(/^<svg[^>]+xmlns="http:\/\/www\.w3\.org\/2000\/svg"/)) {
+          svgString = svgString.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
+        }
+        svgString = svgString.replace(/<svg([^>]*)>/, `<svg$1><rect width="100%" height="100%" fill="#ffffff"/>`);
 
-      return new Promise((resolve, reject) => {
-        const img = new Image();
-        img.onload = () => {
-          const c = document.createElement("canvas");
-          c.width = width;
-          c.height = height;
-          const ctx = c.getContext("2d");
-          ctx.drawImage(img, 0, 0, width, height);
-          URL.revokeObjectURL(url);
-          resolve(c.toDataURL("image/png"));
-        };
-        img.onerror = (e) => {
-          URL.revokeObjectURL(url);
-          reject(e);
-        };
-        img.src = url;
-      });
+        const blob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+
+        return new Promise((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => {
+            const c = document.createElement("canvas");
+            c.width = width;
+            c.height = height;
+            const ctx = c.getContext("2d");
+            ctx.drawImage(img, 0, 0, width, height);
+            URL.revokeObjectURL(url);
+            resolve(c.toDataURL("image/png"));
+          };
+          img.onerror = (e) => {
+            URL.revokeObjectURL(url);
+            logStatus("SVG→PNG変換失敗: " + e.toString());
+            reject(e);
+          };
+          img.src = url;
+        });
+      }
+
+      const jsPDFConstructor = window.jspdf?.jsPDF || window.jsPDF;
+      if (!jsPDFConstructor) {
+        logStatus("エラー: jsPDF が利用できません。");
+        return;
+      }
+
+      const pdf = new jsPDFConstructor("p", "pt", "a4");
+      const pdfWidthPt = pdf.internal.pageSize.getWidth();
+      const svgBBox = svg.getBBox ? svg.getBBox() : null;
+      const svgWidth = svgBBox?.width || svg.clientWidth || 800;
+      const svgHeight = svgBBox?.height || svg.clientHeight || 1000;
+      const targetWidthPx = Math.floor(pdfWidthPt * (96 / 72));
+      const targetHeightPx = Math.max(Math.floor((svgHeight * targetWidthPx) / svgWidth), 100);
+
+      logStatus("SVG→PNG変換: " + targetWidthPx + "x" + targetHeightPx);
+      const dataUrl = await svgToPngDataUrl(svg, targetWidthPx, targetHeightPx);
+
+      logStatus("PNG変換完了。PDFに追加中...");
+      const imgProps = pdf.getImageProperties(dataUrl);
+      const pdfW = pdf.internal.pageSize.getWidth();
+      const pdfH = (imgProps.height * pdfW) / imgProps.width;
+      pdf.addImage(dataUrl, "PNG", 0, 0, pdfW, pdfH);
+
+      pdf.save("score_doremi.pdf");
+      logStatus("PDF保存完了！");
+    } catch (e) {
+      logStatus("PDF生成でエラー: " + e.toString());
+      if(e.stack) logStatus("Stack:\n" + e.stack);
     }
-
-    const jsPDFConstructor = window.jspdf?.jsPDF || window.jsPDF;
-    if (!jsPDFConstructor) {
-      logStatus("エラー: jsPDF が利用できません。");
-      return;
-    }
-
-    const pdf = new jsPDFConstructor("p", "pt", "a4");
-    const pdfWidthPt = pdf.internal.pageSize.getWidth();
-    const svgBBox = svg.getBBox ? svg.getBBox() : null;
-    const svgWidth = svgBBox?.width || svg.clientWidth || 800;
-    const svgHeight = svgBBox?.height || svg.clientHeight || 1000;
-    const targetWidthPx = Math.floor(pdfWidthPt * (96 / 72));
-    const targetHeightPx = Math.max(Math.floor((svgHeight * targetWidthPx) / svgWidth), 100);
-
-    logStatus("SVG→PNG変換: " + targetWidthPx + "x" + targetHeightPx);
-    const dataUrl = await svgToPngDataUrl(svg, targetWidthPx, targetHeightPx);
-
-    logStatus("PNG変換完了。PDFに追加中...");
-    const imgProps = pdf.getImageProperties(dataUrl);
-    const pdfW = pdf.internal.pageSize.getWidth();
-    const pdfH = (imgProps.height * pdfW) / imgProps.width;
-    pdf.addImage(dataUrl, "PNG", 0, 0, pdfW, pdfH);
-
-    pdf.save("score_doremi.pdf");
-    logStatus("PDF保存完了！");
-  } catch (e) {
-    logStatus("PDF生成でエラー: " + e.toString());
-  }
+  });
 });
-
 </script>
 </body>
 </html>
