@@ -59,7 +59,7 @@
   </style>
 </head>
 <body>
-  <h1>ドレミ付き楽譜表示ツールv1.11</h1>
+  <h1>ドレミ付き楽譜表示ツールv1.2</h1>
 <div id="dropZone">
   ここに MusicXML ファイルをドラッグ＆ドロップ<br>
   またはクリックして選択
@@ -160,6 +160,7 @@
     });
 
     // PDF出力
+window.jsPDF = window.jspdf.jsPDF;
 document.getElementById("pdfBtn").onclick = () => {
   html2canvas(scoreContainer).then(canvas => {
     const pdf = new window.jspdf.jsPDF();
