@@ -25,9 +25,52 @@
   <div id="scoreContainer"></div>
 
   <!-- ライブラリ -->
-  <script src="https://cdn.jsdelivr.net/npm/opensheetmusicdisplay@1.7.6/build/opensheetmusicdisplay.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+ <!-- ここを既存の opensheetmusicdisplay <script> の代わりに貼ってください -->
+<script>
+(function(){
+  const statusEl = document.getElementById ? document.getElementById('status') : null;
+  function log(s){ if(statusEl) statusEl.textContent = (new Date()).toLocaleTimeString() + ' — ' + s; console.log(s); }
+
+  const urls = [
+    // try multiple known good endpoints (order matters)
+    "https://cdn.jsdelivr.net/npm/opensheetmusicdisplay@1.7.6/build/opensheetmusicdisplay.min.js",
+    "https://cdn.jsdelivr.net/npm/opensheetmusicdisplay/build/opensheetmusicdisplay.min.js",
+    "https://unpkg.com/opensheetmusicdisplay/build/opensheetmusicdisplay.min.js",
+    // fallback to raw github (may 404 on some hosts) — keep last
+    "https://raw.githubusercontent.com/opensheetmusicdisplay/opensheetmusicdisplay/master/build/opensheetmusicdisplay.min.js"
+  ];
+
+  let idx = 0;
+  function tryLoadNext(){
+    if(idx >= urls.length){
+      log("すべてのCDNで読み込み失敗しました。ローカルに保存して参照するか、通信設定（広告ブロッカー／プライベートリレー）を確認してください。");
+      return;
+    }
+    const url = urls[idx++];
+    log("opensheetmusicdisplay を読み込み中: " + url);
+    const s = document.createElement('script');
+    s.src = url;
+    s.async = false;
+    s.onload = () => {
+      log("読み込み成功: " + url);
+      // show what global names exist
+      setTimeout(()=> {
+        log("window.OpenSheetMusicDisplay: " + !!window.OpenSheetMusicDisplay);
+        log("window.opensheetmusicdisplay: " + !!window.opensheetmusicdisplay);
+      }, 50);
+    };
+    s.onerror = (e) => {
+      log("読み込み失敗: " + url);
+      s.remove();
+      tryLoadNext();
+    };
+    document.head.appendChild(s);
+  }
+
+  // start after a tick so DOM / status exists
+  setTimeout(tryLoadNext, 50);
+})();
+</script>
 
 <script>
 document.addEventListener("DOMContentLoaded", () => {
