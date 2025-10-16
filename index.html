@@ -1,113 +1,175 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ドレミ付き楽譜表示ツール</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ドレミ付き楽譜 ヘルパー診断版</title>
   <style>
-    body { font-family: sans-serif; text-align: center; padding: 2em; background: #f0f0f0; }
-    #dropZone { border: 2px dashed #0078d7; background: #fff; padding: 2em; margin-bottom: 1em; cursor: pointer; }
-    #dropZone input[type="file"] { position: absolute; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
-    #scoreContainer { background: #fff; padding: 1em; border: 1px solid #ccc; min-height: 200px; }
-    button { padding: 0.5em 1em; background: #0078d7; color: #fff; border: none; border-radius: 6px; margin-top: 1em; cursor: pointer; }
-    button:hover { background: #005ea6; }
+    body{font-family:sans-serif;padding:1.5em;background:#f4f7fb;text-align:center}
+    #scoreContainer{background:#fff;border:1px solid #ccc;min-height:220px;padding:1em;margin:1em auto;max-width:900px}
+    #status{white-space:pre-line;text-align:left;max-width:900px;margin:0 auto;background:#fff;border:1px solid #ddd;padding:0.6em}
+    input,button{padding:0.6em 1em;margin:0.4em}
   </style>
 </head>
 <body>
-  <h1>ドレミ付き楽譜表示ツール v1.31</h1>
+  <h1>ドレミ付き楽譜 — 診断版</h1>
 
-  <div id="dropZone">
-    ここに MusicXML ファイルをドラッグ＆ドロップ<br>
-    またはクリックして選択
+  <div>
+    <!-- 透明にして重ねる方式は避ける（iPadの不具合回避） -->
     <input type="file" id="fileInput" accept=".xml,.musicxml" />
+    <button id="loadBtn">読み込み開始</button>
+    <button id="pdfBtn">PDFプレビュー / 保存</button>
   </div>
 
-  <p id="statusMessage">まだファイルが読み込まれていません。</p>
+  <p id="status">ステータス：待機中</p>
+
   <div id="scoreContainer"></div>
-  <button id="pdfBtn">PDFとして保存</button>
 
   <!-- ライブラリ -->
- <script src="https://cdn.jsdelivr.net/npm/opensheetmusicdisplay@1.6.4/build/opensheetmusicdisplay.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script>
-  window.jsPDF = window.jspdf.jsPDF;
-</script>
-
+  <script src="https://cdn.jsdelivr.net/npm/opensheetmusicdisplay@1.6.4/build/opensheetmusicdisplay.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
 <script>
 document.addEventListener("DOMContentLoaded", () => {
-  const osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay(
-    document.getElementById("scoreContainer")
-  );
-  const dropZone = document.getElementById("dropZone");
-  const fileInput = document.getElementById("fileInput");
+  const statusEl = document.getElementById("status");
+  function logStatus(s){ statusEl.textContent = (new Date()).toLocaleTimeString() + " — " + s; }
 
-  function toDoremi(step, alter, octave) {
+  // Safari対応でjsPDFを確保
+  try {
+    window.jsPDF = window.jspdf && window.jspdf.jsPDF ? window.jspdf.jsPDF : window.jsPDF;
+  } catch(e){
+    // nothing
+  }
+
+  logStatus("ライブラリ読み込みチェック中...");
+
+  // ライブラリ存在チェック（見える化）
+  if(!window.opensheetmusicdisplay){
+    logStatus("エラー: OpenSheetMusicDisplay が読み込まれていません。ネット接続を確認してください。");
+    return;
+  }
+  if(!window.html2canvas){
+    logStatus("エラー: html2canvas が読み込まれていません。");
+    return;
+  }
+  if(!window.jspdf && !window.jsPDF){
+    logStatus("警告: jsPDF が見つかりません（PDF機能は制限されます）。");
+  } else {
+    logStatus("ライブラリ読み込みOK。OSMD初期化します...");
+  }
+
+  // OSMD 初期化（DOM確実参照）
+  let osmd;
+  try {
+    const container = document.getElementById("scoreContainer");
+    osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay(container);
+    logStatus("OSMD初期化完了。ファイルを選択して「読み込み開始」を押してください。");
+  } catch(err){
+    logStatus("エラー: OSMD初期化に失敗しました。\n" + err.toString());
+    return;
+  }
+
+  // 変換ヘルパー（ドレミ付与）
+  function toDoremi(step, alter, octave){
     const base = {C:"ド", D:"レ", E:"ミ", F:"ファ", G:"ソ", A:"ラ", B:"シ"};
     let name = base[step] || step;
     if (alter === 1) name += "#";
     if (alter === -1) name += "♭";
     const offset = octave - 4 + 2;
-    const superscript = ["⁻¹","⁰","¹","²","³","⁴","⁵","⁶","⁷","⁸"][offset] || `(${octave})`;
-    return name + superscript;
+    const supers = ["⁻¹","⁰","¹","²","³","⁴","⁵","⁶","⁷","⁸"][offset] || `(${octave})`;
+    return name + supers;
   }
 
-  function processXML(xmlText) {
-    const parser = new DOMParser();
-    const xmlDoc = parser.parseFromString(xmlText, "text/xml");
-    const notes = xmlDoc.getElementsByTagName("note");
-    for (let n of notes) {
-      const pitch = n.getElementsByTagName("pitch")[0];
-      if (pitch) {
-        const step = pitch.getElementsByTagName("step")[0]?.textContent;
-        const alter = parseInt(pitch.getElementsByTagName("alter")[0]?.textContent || 0);
-        const octave = parseInt(pitch.getElementsByTagName("octave")[0]?.textContent || 4);
-        const lyricText = toDoremi(step, alter, octave);
-        const lyric = xmlDoc.createElement("lyric");
-        const text = xmlDoc.createElement("text");
-        text.textContent = lyricText;
-        lyric.appendChild(text);
-        n.appendChild(lyric);
+  function processXML(xmlText){
+    try{
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(xmlText,"text/xml");
+      // check parseerror
+      const pe = xmlDoc.getElementsByTagName("parsererror");
+      if(pe.length) throw new Error("XML parse error");
+      const notes = xmlDoc.getElementsByTagName("note");
+      for(let i=0;i<notes.length;i++){
+        const n = notes[i];
+        const pitch = n.getElementsByTagName("pitch")[0];
+        if(pitch){
+          const step = pitch.getElementsByTagName("step")[0]?.textContent;
+          const alter = parseInt(pitch.getElementsByTagName("alter")[0]?.textContent || 0);
+          const octave = parseInt(pitch.getElementsByTagName("octave")[0]?.textContent || 4);
+          const lyricText = toDoremi(step,alter,octave);
+          const lyric = xmlDoc.createElement("lyric");
+          const text = xmlDoc.createElement("text");
+          text.textContent = lyricText;
+          lyric.appendChild(text);
+          n.appendChild(lyric);
+        }
       }
+      return new XMLSerializer().serializeToString(xmlDoc);
+    } catch(e){
+      throw new Error("processXML失敗: " + e.message);
     }
-    return new XMLSerializer().serializeToString(xmlDoc);
   }
 
-  function handleFile(file) {
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async e => {
-      console.log("ファイル読み込み成功");
-      const xml = processXML(e.target.result);
-      await osmd.load(xml);
-      await osmd.render();
-      document.getElementById("statusMessage").textContent = `読み込み完了: ${file.name}`;
-    };
-    reader.readAsText(file);
-  }
-
-  dropZone.addEventListener("dragover", e => e.preventDefault());
-  dropZone.addEventListener("drop", e => {
-    e.preventDefault();
-    handleFile(e.dataTransfer.files[0]);
-  });
-  fileInput.addEventListener("change", e => handleFile(e.target.files[0]));
-
-  document.getElementById("pdfBtn").onclick = async () => {
-    const canvas = await html2canvas(scoreContainer, { scale: 2, useCORS: true });
-    const jsPDFConstructor = window.jspdf?.jsPDF || window.jsPDF;
-    if (!jsPDFConstructor) {
-      alert("jsPDFが正しく読み込まれていません。");
+  // ファイル処理
+  const fileInput = document.getElementById("fileInput");
+  const loadBtn = document.getElementById("loadBtn");
+  loadBtn.addEventListener("click", () => {
+    const file = fileInput.files[0];
+    if(!file){
+      logStatus("ファイルが選択されていません。左のボタンで .xml/.musicxml を選んでください。");
       return;
     }
-    const pdf = new jsPDFConstructor();
-    const imgData = canvas.toDataURL("image/png");
-    const pdfWidth = pdf.internal.pageSize.getWidth();
-    const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
-    pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight);
-    pdf.save("score_doremi.pdf");
-  };
+    logStatus("ファイル選択: " + file.name + " — 読み込みを開始します...");
+    const reader = new FileReader();
+
+    reader.onloadstart = () => logStatus("FileReader: 読み込み開始...");
+    reader.onerror = () => logStatus("FileReader: 読み込みエラーが発生しました。ファイルを確認してください。");
+    reader.onabort = () => logStatus("FileReader: 読み込みが中断されました。");
+    reader.onload = async (e) => {
+      try {
+        logStatus("FileReader: 読み込み成功。XML処理中...");
+        const processedXml = processXML(e.target.result);
+        logStatus("XML加工完了。OSMDにロード中...");
+        await osmd.load(processedXml);
+        logStatus("OSMD.load 完了。レンダリング中...");
+        await osmd.render();
+        logStatus("レンダリング完了：楽譜が表示されました。 (" + file.name + ")");
+      } catch(err){
+        logStatus("読み込み/描画エラー:\n" + err.toString());
+      }
+    };
+
+    // iPadでの文字コード問題回避
+    reader.readAsText(file, "UTF-8");
+  });
+
+  // PDFボタン（プレビュー方式：iPadで保存しやすい）
+  const pdfBtn = document.getElementById("pdfBtn");
+  pdfBtn.addEventListener("click", async () => {
+    try {
+      logStatus("PDF処理：キャプチャ開始...");
+      const canvas = await html2canvas(document.getElementById("scoreContainer"), {scale:2, useCORS:true});
+      logStatus("キャプチャ完了。PDF生成中...");
+      const jsPDFConstructor = window.jspdf?.jsPDF || window.jsPDF;
+      if(!jsPDFConstructor){
+        logStatus("エラー: jsPDF が利用できません。");
+        return;
+      }
+      const pdf = new jsPDFConstructor();
+      const img = canvas.toDataURL("image/png");
+      const w = pdf.internal.pageSize.getWidth();
+      const h = (canvas.height * w) / canvas.width;
+      pdf.addImage(img, "PNG", 0, 0, w, h);
+      // iPadでは保存より新タブでプレビューする方が確実
+      const blob = pdf.output("blob");
+      const url = URL.createObjectURL(blob);
+      logStatus("PDF生成完了。別タブで開きます...");
+      window.open(url);
+    } catch(e){
+      logStatus("PDF生成でエラー: " + e.toString());
+    }
+  });
+
 });
 </script>
 </body>
