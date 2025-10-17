@@ -12,7 +12,7 @@
   </style>
 </head>
 <body>
-  <h1>xml→ドレミ付き楽譜v2</h1>
+  <h1>xml→ドレミ付き楽譜 v2</h1>
 
   <div>
     <input type="file" id="fileInput" accept=".xml,.musicxml,.mxl" />
@@ -20,37 +20,38 @@
     <button id="pdfBtn">PDFプレビュー / 保存</button>
   </div>
 
-  <p id="status">読み込み待機中</p>
+  <p id="status">ライブラリ読み込み待機中...</p>
   <div id="scoreContainer"></div>
 
-  <!-- ライブラリ -->
-  <!-- ライブラリ -->
-  <script src="https://unpkg.com/opensheetmusicdisplay/build/opensheetmusicdisplay.min.js"></script>
+  <!-- ライブラリは defer なしで確実に先にロード -->
+  <script src="https://cdn.jsdelivr.net/npm/opensheetmusicdisplay@1.7.6/build/opensheetmusicdisplay.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
   <script>
-  window.addEventListener("load", () => {
-    // ライブラリが全て読み込まれてから初期化
- if (!window.opensheetmusicdisplay && !window.opensheetmusicdisplay.OpenSheetMusicDisplay) {
-  alert("OSMDの読み込みに失敗しました。ネット接続を確認してください。");
-  return;
-}
-    console.log("OSMDロード完了");
-    initApp(); // ← 下で定義
-  });
+  const statusEl = document.getElementById("status");
+  function logStatus(s){ statusEl.textContent = new Date().toLocaleTimeString() + " — " + s; }
+
+  logStatus("OSMDライブラリのロード確認中...");
+
+  // OSMDを待つループ
+  const checkLib = setInterval(() => {
+    if (window.opensheetmusicdisplay?.OpenSheetMusicDisplay) {
+      clearInterval(checkLib);
+      logStatus("OSMDロード完了！初期化開始...");
+      initApp();
+    } else {
+      logStatus("OSMDを読み込み中...（ネット通信待機）");
+    }
+  }, 700);
 
   async function initApp(){
-    const statusEl = document.getElementById("status");
-    function logStatus(s){ statusEl.textContent = new Date().toLocaleTimeString() + " — " + s; }
-
     const container = document.getElementById("scoreContainer");
     window.jsPDF = window.jspdf?.jsPDF || window.jsPDF;
 
-    let osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay(container);
+    const osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay(container);
     logStatus("OSMD初期化完了。ファイルを選択して「読み込み開始」を押してください。");
 
-    // ドレミ変換
     function toDoremi(step, alter, octave){
       const base = {C:"ド", D:"レ", E:"ミ", F:"ファ", G:"ソ", A:"ラ", B:"シ"};
       let name = base[step] || step;
@@ -61,153 +62,104 @@
       return name + supers;
     }
 
-    // XML加工
-   function processXML(xmlText){
-  const parser = new DOMParser();
-  const xmlDoc = parser.parseFromString(xmlText, "text/xml");
-  if (xmlDoc.getElementsByTagName("parsererror").length)
-    throw new Error("XML parse error");
+    function processXML(xmlText){
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(xmlText, "text/xml");
+      if (xmlDoc.getElementsByTagName("parsererror").length)
+        throw new Error("XML parse error");
 
-  const notes = xmlDoc.getElementsByTagName("note");
-  let chordGroup = []; // 和音を一時的に保持するバッファ
+      const notes = xmlDoc.getElementsByTagName("note");
+      let chordGroup = [];
 
-  function flushChordGroup() {
-    if (chordGroup.length <= 1) {
-      chordGroup = [];
-      return;
-    }
+      function flushChordGroup(){
+        if (chordGroup.length <= 1) { chordGroup = []; return; }
+        chordGroup.forEach((noteNode, idx) => {
+          const pitch = noteNode.getElementsByTagName("pitch")[0];
+          if (!pitch) return;
+          const step = pitch.getElementsByTagName("step")[0]?.textContent;
+          const alter = parseInt(pitch.getElementsByTagName("alter")[0]?.textContent || 0);
+          const octave = parseInt(pitch.getElementsByTagName("octave")[0]?.textContent || 4);
+          const lyricText = toDoremi(step, alter, octave);
+          const lyric = xmlDoc.createElement("lyric");
+          lyric.setAttribute("number", idx + 1);
+          const text = xmlDoc.createElement("text");
+          text.textContent = lyricText;
+          lyric.appendChild(text);
+          noteNode.appendChild(lyric);
+        });
+        chordGroup = [];
+      }
 
-    // 縦並び（上から下）
-    chordGroup.forEach((noteNode, idx) => {
-      const pitch = noteNode.getElementsByTagName("pitch")[0];
-      if (!pitch) return;
-      const step = pitch.getElementsByTagName("step")[0]?.textContent;
-      const alter = parseInt(pitch.getElementsByTagName("alter")[0]?.textContent || 0);
-      const octave = parseInt(pitch.getElementsByTagName("octave")[0]?.textContent || 4);
-      const lyricText = toDoremi(step, alter, octave);
-
-      const lyric = xmlDoc.createElement("lyric");
-      lyric.setAttribute("number", idx + 1);
-      const text = xmlDoc.createElement("text");
-      text.textContent = lyricText;
-      lyric.appendChild(text);
-      noteNode.appendChild(lyric);
-    });
-    chordGroup = [];
-  }
-
-  for (let i = 0; i < notes.length; i++) {
-    const n = notes[i];
-    const isChord = n.getElementsByTagName("chord").length > 0;
-
-    if (!isChord) {
-      // 前の和音があれば確定
+      for (let i=0; i<notes.length; i++){
+        const n = notes[i];
+        const isChord = n.getElementsByTagName("chord").length > 0;
+        if (!isChord){ flushChordGroup(); chordGroup = [n]; }
+        else { chordGroup.push(n); }
+      }
       flushChordGroup();
-      chordGroup = [n];
-    } else {
-      chordGroup.push(n);
+      return new XMLSerializer().serializeToString(xmlDoc);
     }
-  }
 
-  // 最後の和音グループを出力
-  flushChordGroup();
-
-  return new XMLSerializer().serializeToString(xmlDoc);
-}
-
-    // 読み込みボタン
-    const fileInput = document.getElementById("fileInput");
-    const loadBtn = document.getElementById("loadBtn");
-
-    loadBtn.addEventListener("click", () => {
-      const file = fileInput.files[0];
-      if(!file){ logStatus("ファイルを選択してください。"); return; }
+    document.getElementById("loadBtn").addEventListener("click", () => {
+      const file = document.getElementById("fileInput").files[0];
+      if (!file){ logStatus("ファイルを選択してください。"); return; }
 
       const reader = new FileReader();
       reader.onload = async (e) => {
         try {
-          if (file.name.endsWith(".mxl")) {
-            await osmd.load(e.target.result);
-          } else {
-            const processedXml = processXML(e.target.result);
-            await osmd.load(processedXml);
-          }
+          if (file.name.endsWith(".mxl")) await osmd.load(e.target.result);
+          else await osmd.load(processXML(e.target.result));
           await osmd.render();
           logStatus("レンダリング完了！");
         } catch(err){
-          logStatus("読み込みエラー:\n" + err);
+          logStatus("読み込みエラー: " + err);
         }
       };
-
-      if (file.name.endsWith(".mxl"))
-        reader.readAsArrayBuffer(file);
-      else
-        reader.readAsText(file,"UTF-8");
+      if (file.name.endsWith(".mxl")) reader.readAsArrayBuffer(file);
+      else reader.readAsText(file, "UTF-8");
     });
 
-    // PDFボタン
- document.getElementById("pdfBtn").addEventListener("click", async () => {
-  try {
-    const svg = container.querySelector("svg");
-    if (!svg) { logStatus("まだ楽譜がありません。"); return; }
+    document.getElementById("pdfBtn").addEventListener("click", async () => {
+      try {
+        const svg = container.querySelector("svg");
+        if (!svg) return logStatus("まだ楽譜がありません。");
 
-    logStatus("PDF生成中...少し時間がかかります。");
-
-    const svgData = new XMLSerializer().serializeToString(svg);
-    const svgBlob = new Blob([svgData], { type: "image/svg+xml" });
-    const svgUrl = URL.createObjectURL(svgBlob);
-    const img = new Image();
-
-    img.onload = async () => {
-      const scale = 2; 
-      const canvas = document.createElement("canvas");
-      canvas.width = img.width * scale;
-      canvas.height = img.height * scale;
-      const ctx = canvas.getContext("2d");
-      ctx.scale(scale, scale);
-      ctx.drawImage(img, 0, 0);
-
-      const pageWidth = 794;   // A4 横幅(px)
-      const pageHeight = 1123; // A4 高さ(px)
-      const pdf = new jsPDF({orientation: "portrait", unit: "px", format: [pageWidth, pageHeight]});
-
-      const totalPages = Math.ceil(canvas.height / pageHeight);
-      for (let i = 0; i < totalPages; i++) {
-        const pageCanvas = document.createElement("canvas");
-        pageCanvas.width = canvas.width;
-        pageCanvas.height = pageHeight;
-        const pageCtx = pageCanvas.getContext("2d");
-
-        // 各ページごとにコピー
-        pageCtx.drawImage(
-          canvas,
-          0,
-          i * pageHeight,
-          canvas.width,
-          pageHeight,
-          0,
-          0,
-          canvas.width,
-          pageHeight
-        );
-
-        const pagePng = pageCanvas.toDataURL("image/png", 1.0);
-        if (i > 0) pdf.addPage();
-        pdf.addImage(pagePng, "PNG", 0, 0, pageWidth, pageHeight);
+        logStatus("PDF生成中...（少し時間がかかります）");
+        const svgData = new XMLSerializer().serializeToString(svg);
+        const svgBlob = new Blob([svgData], { type: "image/svg+xml" });
+        const svgUrl = URL.createObjectURL(svgBlob);
+        const img = new Image();
+        img.onload = async () => {
+          const scale = 2;
+          const canvas = document.createElement("canvas");
+          canvas.width = img.width * scale;
+          canvas.height = img.height * scale;
+          const ctx = canvas.getContext("2d");
+          ctx.scale(scale, scale);
+          ctx.drawImage(img, 0, 0);
+          const pageWidth = 794, pageHeight = 1123;
+          const pdf = new jsPDF({ orientation: "portrait", unit: "px", format: [pageWidth, pageHeight] });
+          const totalPages = Math.ceil(canvas.height / pageHeight);
+          for (let i = 0; i < totalPages; i++) {
+            const pageCanvas = document.createElement("canvas");
+            pageCanvas.width = canvas.width;
+            pageCanvas.height = pageHeight;
+            const pageCtx = pageCanvas.getContext("2d");
+            pageCtx.drawImage(canvas, 0, i * pageHeight, canvas.width, pageHeight, 0, 0, canvas.width, pageHeight);
+            const imgData = pageCanvas.toDataURL("image/png", 1.0);
+            if (i > 0) pdf.addPage();
+            pdf.addImage(imgData, "PNG", 0, 0, pageWidth, pageHeight);
+          }
+          pdf.save("score.pdf");
+          URL.revokeObjectURL(svgUrl);
+          logStatus("PDF保存完了！（" + totalPages + "ページ）");
+        };
+        img.src = svgUrl;
+      } catch(e){
+        logStatus("PDF生成エラー: " + e);
       }
-
-      pdf.save("score.pdf");
-      URL.revokeObjectURL(svgUrl);
-      logStatus("PDF保存完了！（ページ数: " + totalPages + "）");
-    };
-
-    img.onerror = () => logStatus("SVG→画像変換エラー");
-    img.src = svgUrl;
-  } catch (e) {
-    logStatus("PDF生成エラー: " + e);
+    });
   }
-});
-
-</script>
+  </script>
 </body>
 </html>
