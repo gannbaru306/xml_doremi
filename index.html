@@ -15,196 +15,151 @@
   <h1>xml→ドレミ付き楽譜</h1>
 
   <div>
-    <!-- 透明にして重ねる方式は避ける（iPadの不具合回避） -->
-    <input type="file" id="fileInput" accept=".xml,.musicxml" />
+    <input type="file" id="fileInput" accept=".xml,.musicxml,.mxl" />
     <button id="loadBtn">読み込み開始</button>
     <button id="pdfBtn">PDFプレビュー / 保存</button>
   </div>
 
   <p id="status">ステータス：待機中</p>
-
   <div id="scoreContainer"></div>
 
   <!-- ライブラリ -->
- <script src="https://unpkg.com/opensheetmusicdisplay/build/opensheetmusicdisplay.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://unpkg.com/opensheetmusicdisplay/build/opensheetmusicdisplay.min.js" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
 
 <script>
 document.addEventListener("DOMContentLoaded", () => {
   const statusEl = document.getElementById("status");
   function logStatus(s){ statusEl.textContent = (new Date()).toLocaleTimeString() + " — " + s; }
 
-  // Safari対応でjsPDFを確保
-  try {
-    window.jsPDF = window.jspdf && window.jspdf.jsPDF ? window.jspdf.jsPDF : window.jsPDF;
-  } catch(e){
-    // nothing
-  }
-
   logStatus("ライブラリ読み込みチェック中...");
 
-  // ライブラリ存在チェック（見える化）
-  if(!window.opensheetmusicdisplay){
-    logStatus("エラー: OpenSheetMusicDisplay が読み込まれていません。ネット接続を確認してください。");
-    return;
-  }
-  if(!window.html2canvas){
-    logStatus("エラー: html2canvas が読み込まれていません。");
-    return;
-  }
-  if(!window.jspdf && !window.jsPDF){
-    logStatus("警告: jsPDF が見つかりません（PDF機能は制限されます）。");
-  } else {
-    logStatus("ライブラリ読み込みOK。OSMD初期化します...");
-  }
+  // OSMDを待つループ
+  const waitForOSMD = setInterval(() => {
+    if (window.opensheetmusicdisplay) {
+      clearInterval(waitForOSMD);
+      logStatus("OSMDロード完了！初期化を開始します...");
+      initApp();
+    } else {
+      logStatus("OSMDを読み込み中...（通信待機）");
+    }
+  }, 700);
 
-  // OSMD 初期化（DOM確実参照）
-  let osmd;
-  try {
+  async function initApp(){
+    logStatus("OSMD初期化中...");
     const container = document.getElementById("scoreContainer");
-    osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay(container);
-    logStatus("OSMD初期化完了。ファイルを選択して「読み込み開始」を押してください。");
-  } catch(err){
-    logStatus("エラー: OSMD初期化に失敗しました。\n" + err.toString());
-    return;
-  }
 
-  // 変換ヘルパー（ドレミ付与）
-  function toDoremi(step, alter, octave){
-    const base = {C:"ド", D:"レ", E:"ミ", F:"ファ", G:"ソ", A:"ラ", B:"シ"};
-    let name = base[step] || step;
-    if (alter === 1) name += "#";
-    if (alter === -1) name += "♭";
-    const offset = octave - 4 + 2;
-    const supers = ["⁻¹","⁰","¹","²","³","⁴","⁵","⁶","⁷","⁸"][offset] || `(${octave})`;
-    return name + supers;
-  }
+    // Safari対策
+    window.jsPDF = window.jspdf?.jsPDF || window.jsPDF;
+    let osmd;
+    try {
+      osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay(container);
+      logStatus("OSMD初期化完了。ファイルを選択して「読み込み開始」を押してください。");
+    } catch(err){
+      logStatus("エラー: OSMD初期化失敗\n" + err);
+      return;
+    }
 
-  function processXML(xmlText){
-    try{
+    // ドレミ変換
+    function toDoremi(step, alter, octave){
+      const base = {C:"ド", D:"レ", E:"ミ", F:"ファ", G:"ソ", A:"ラ", B:"シ"};
+      let name = base[step] || step;
+      if (alter === 1) name += "#";
+      if (alter === -1) name += "♭";
+      const offset = octave - 4 + 2;
+      const supers = ["⁻¹","⁰","¹","²","³","⁴","⁵","⁶","⁷","⁸"][offset] || `(${octave})`;
+      return name + supers;
+    }
+
+    // XML加工
+    function processXML(xmlText){
       const parser = new DOMParser();
       const xmlDoc = parser.parseFromString(xmlText,"text/xml");
-      // check parseerror
-      const pe = xmlDoc.getElementsByTagName("parsererror");
-      if(pe.length) throw new Error("XML parse error");
+      if (xmlDoc.getElementsByTagName("parsererror").length)
+        throw new Error("XML parse error");
       const notes = xmlDoc.getElementsByTagName("note");
-      for(let i=0;i<notes.length;i++){
-        const n = notes[i];
+      for (let n of notes) {
         const pitch = n.getElementsByTagName("pitch")[0];
-        if(pitch){
+        if (pitch){
           const step = pitch.getElementsByTagName("step")[0]?.textContent;
           const alter = parseInt(pitch.getElementsByTagName("alter")[0]?.textContent || 0);
           const octave = parseInt(pitch.getElementsByTagName("octave")[0]?.textContent || 4);
-          const lyricText = toDoremi(step,alter,octave);
           const lyric = xmlDoc.createElement("lyric");
           const text = xmlDoc.createElement("text");
-          text.textContent = lyricText;
+          text.textContent = toDoremi(step,alter,octave);
           lyric.appendChild(text);
           n.appendChild(lyric);
         }
       }
       return new XMLSerializer().serializeToString(xmlDoc);
-    } catch(e){
-      throw new Error("processXML失敗: " + e.message);
-    }
-  }
-
-  // ファイル処理
-  const fileInput = document.getElementById("fileInput");
-  const loadBtn = document.getElementById("loadBtn");
-  loadBtn.addEventListener("click", () => {
-    const file = fileInput.files[0];
-    if(!file){
-      logStatus("ファイルが選択されていません。左のボタンで .xml/.musicxml を選んでください。");
-      return;
-    }
-    logStatus("ファイル選択: " + file.name + " — 読み込みを開始します...");
-    const reader = new FileReader();
-
-    reader.onloadstart = () => logStatus("FileReader: 読み込み開始...");
-    reader.onerror = () => logStatus("FileReader: 読み込みエラーが発生しました。ファイルを確認してください。");
-    reader.onabort = () => logStatus("FileReader: 読み込みが中断されました。");
-  reader.onload = async (e) => {
-  try {
-    logStatus("FileReader: 読み込み成功。XML処理中...");
-    if (e.target.result instanceof ArrayBuffer) {
-      // .mxl (zip形式) の場合
-      logStatus("MXL形式を検出。OSMDに直接ロードします...");
-      await osmd.load(e.target.result);
-    } else {
-      // .xml の場合
-      const processedXml = processXML(e.target.result);
-      logStatus("XML加工完了。OSMDにロード中...");
-      await osmd.load(processedXml);
     }
 
-    logStatus("OSMD.load 完了。レンダリング中...");
-    await osmd.render();
-    logStatus("レンダリング完了：楽譜が表示されました。 (" + file.name + ")");
-  } catch(err){
-    logStatus("読み込み/描画エラー:\n" + err.toString());
-  }
-};
+    // 読み込みボタン
+    const fileInput = document.getElementById("fileInput");
+    const loadBtn = document.getElementById("loadBtn");
 
-    // iPadでの文字コード問題回避
-  if (file.name.endsWith(".mxl")) {
-  reader.readAsArrayBuffer(file);
-  } else {
-    reader.readAsText(file, "UTF-8");
-}
-  });
+    loadBtn.addEventListener("click", () => {
+      const file = fileInput.files[0];
+      if(!file){ logStatus("ファイルを選択してください。"); return; }
 
-  const pdfBtn = document.getElementById("pdfBtn");
-pdfBtn.addEventListener("click", async () => {
-  try {
-    const container = document.getElementById("scoreContainer");
-    const svg = container.querySelector("svg");
-    if (!svg) {
-      logStatus("エラー: SVG が見つかりません（楽譜がまだ描画されていません）。");
-      return;
-    }
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        try {
+          if (file.name.endsWith(".mxl")) {
+            await osmd.load(e.target.result);
+          } else {
+            const processedXml = processXML(e.target.result);
+            await osmd.load(processedXml);
+          }
+          await osmd.render();
+          logStatus("レンダリング完了！");
+        } catch(err){
+          logStatus("読み込みエラー:\n" + err);
+        }
+      };
 
-    logStatus("PDF処理：SVG→画像変換中...");
+      if (file.name.endsWith(".mxl"))
+        reader.readAsArrayBuffer(file);
+      else
+        reader.readAsText(file,"UTF-8");
+    });
 
-    // SVGをPNG画像に変換
-    const svgData = new XMLSerializer().serializeToString(svg);
-    const svgBlob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" });
-    const svgUrl = URL.createObjectURL(svgBlob);
-    const img = new Image();
+    // PDFボタン
+    document.getElementById("pdfBtn").addEventListener("click", async () => {
+      try {
+        const svg = container.querySelector("svg");
+        if (!svg) { logStatus("まだ楽譜がありません。"); return; }
 
-    img.onload = async () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = img.width;
-      canvas.height = img.height;
-      const ctx = canvas.getContext("2d");
-      ctx.drawImage(img, 0, 0);
+        const svgData = new XMLSerializer().serializeToString(svg);
+        const svgBlob = new Blob([svgData], { type: "image/svg+xml" });
+        const svgUrl = URL.createObjectURL(svgBlob);
+        const img = new Image();
 
-      const pngData = canvas.toDataURL("image/png");
-      const jsPDFConstructor = window.jspdf?.jsPDF || window.jsPDF;
-      if (!jsPDFConstructor) {
-        logStatus("エラー: jsPDF が利用できません。");
-        return;
+        img.onload = () => {
+          const canvas = document.createElement("canvas");
+          canvas.width = img.width;
+          canvas.height = img.height;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0);
+          const png = canvas.toDataURL("image/png");
+
+          const PDF = window.jsPDF;
+          if (!PDF) { logStatus("jsPDFが利用できません。"); return; }
+
+          const pdf = new PDF({orientation:"portrait",unit:"px"});
+          const pageWidth = pdf.internal.pageSize.getWidth();
+          const scale = pageWidth / img.width;
+          pdf.addImage(png, "PNG", 0, 0, pageWidth, img.height * scale);
+          pdf.save("score.pdf");
+          logStatus("PDF保存完了！");
+          URL.revokeObjectURL(svgUrl);
+        };
+        img.src = svgUrl;
+      } catch(e){
+        logStatus("PDF生成エラー: " + e);
       }
-
-      const pdf = new jsPDFConstructor({orientation: "portrait", unit: "px"});
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const scale = pageWidth / img.width;
-      const pageHeight = img.height * scale;
-
-      pdf.addImage(pngData, "PNG", 0, 0, pageWidth, pageHeight);
-      pdf.save("score.pdf");
-      logStatus("PDF保存完了！");
-      URL.revokeObjectURL(svgUrl);
-    };
-
-    img.onerror = () => {
-      logStatus("エラー: SVG→画像変換に失敗しました。");
-    };
-
-    img.src = svgUrl;
-  } catch (e) {
-    logStatus("PDF生成でエラー: " + e.toString());
+    });
   }
 });
 </script>
