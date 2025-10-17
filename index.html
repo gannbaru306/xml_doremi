@@ -12,7 +12,7 @@
   </style>
 </head>
 <body>
-  <h1>xml→ドレミ付き楽譜</h1>
+  <h1>xml→ドレミ付き楽譜v2</h1>
 
   <div>
     <input type="file" id="fileInput" accept=".xml,.musicxml,.mxl" />
@@ -73,27 +73,58 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // XML加工
-    function processXML(xmlText){
-      const parser = new DOMParser();
-      const xmlDoc = parser.parseFromString(xmlText,"text/xml");
-      if (xmlDoc.getElementsByTagName("parsererror").length)
-        throw new Error("XML parse error");
-      const notes = xmlDoc.getElementsByTagName("note");
-      for (let n of notes) {
-        const pitch = n.getElementsByTagName("pitch")[0];
-        if (pitch){
-          const step = pitch.getElementsByTagName("step")[0]?.textContent;
-          const alter = parseInt(pitch.getElementsByTagName("alter")[0]?.textContent || 0);
-          const octave = parseInt(pitch.getElementsByTagName("octave")[0]?.textContent || 4);
-          const lyric = xmlDoc.createElement("lyric");
-          const text = xmlDoc.createElement("text");
-          text.textContent = toDoremi(step,alter,octave);
-          lyric.appendChild(text);
-          n.appendChild(lyric);
-        }
-      }
-      return new XMLSerializer().serializeToString(xmlDoc);
+   function processXML(xmlText){
+  const parser = new DOMParser();
+  const xmlDoc = parser.parseFromString(xmlText, "text/xml");
+  if (xmlDoc.getElementsByTagName("parsererror").length)
+    throw new Error("XML parse error");
+
+  const notes = xmlDoc.getElementsByTagName("note");
+  let chordGroup = []; // 和音を一時的に保持するバッファ
+
+  function flushChordGroup() {
+    if (chordGroup.length <= 1) {
+      chordGroup = [];
+      return;
     }
+
+    // 縦並び（上から下）
+    chordGroup.forEach((noteNode, idx) => {
+      const pitch = noteNode.getElementsByTagName("pitch")[0];
+      if (!pitch) return;
+      const step = pitch.getElementsByTagName("step")[0]?.textContent;
+      const alter = parseInt(pitch.getElementsByTagName("alter")[0]?.textContent || 0);
+      const octave = parseInt(pitch.getElementsByTagName("octave")[0]?.textContent || 4);
+      const lyricText = toDoremi(step, alter, octave);
+
+      const lyric = xmlDoc.createElement("lyric");
+      lyric.setAttribute("number", idx + 1);
+      const text = xmlDoc.createElement("text");
+      text.textContent = lyricText;
+      lyric.appendChild(text);
+      noteNode.appendChild(lyric);
+    });
+    chordGroup = [];
+  }
+
+  for (let i = 0; i < notes.length; i++) {
+    const n = notes[i];
+    const isChord = n.getElementsByTagName("chord").length > 0;
+
+    if (!isChord) {
+      // 前の和音があれば確定
+      flushChordGroup();
+      chordGroup = [n];
+    } else {
+      chordGroup.push(n);
+    }
+  }
+
+  // 最後の和音グループを出力
+  flushChordGroup();
+
+  return new XMLSerializer().serializeToString(xmlDoc);
+}
 
     // 読み込みボタン
     const fileInput = document.getElementById("fileInput");
