@@ -157,42 +157,68 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     // PDFボタン
-    document.getElementById("pdfBtn").addEventListener("click", async () => {
-      try {
-        const svg = container.querySelector("svg");
-        if (!svg) { logStatus("まだ楽譜がありません。"); return; }
+ document.getElementById("pdfBtn").addEventListener("click", async () => {
+  try {
+    const svg = container.querySelector("svg");
+    if (!svg) { logStatus("まだ楽譜がありません。"); return; }
 
-        const svgData = new XMLSerializer().serializeToString(svg);
-        const svgBlob = new Blob([svgData], { type: "image/svg+xml" });
-        const svgUrl = URL.createObjectURL(svgBlob);
-        const img = new Image();
+    logStatus("PDF生成中...少し時間がかかります。");
 
-        img.onload = () => {
-          const canvas = document.createElement("canvas");
-          canvas.width = img.width;
-          canvas.height = img.height;
-          const ctx = canvas.getContext("2d");
-          ctx.drawImage(img, 0, 0);
-          const png = canvas.toDataURL("image/png");
+    const svgData = new XMLSerializer().serializeToString(svg);
+    const svgBlob = new Blob([svgData], { type: "image/svg+xml" });
+    const svgUrl = URL.createObjectURL(svgBlob);
+    const img = new Image();
 
-          const PDF = window.jsPDF;
-          if (!PDF) { logStatus("jsPDFが利用できません。"); return; }
+    img.onload = async () => {
+      const scale = 2; 
+      const canvas = document.createElement("canvas");
+      canvas.width = img.width * scale;
+      canvas.height = img.height * scale;
+      const ctx = canvas.getContext("2d");
+      ctx.scale(scale, scale);
+      ctx.drawImage(img, 0, 0);
 
-          const pdf = new PDF({orientation:"portrait",unit:"px"});
-          const pageWidth = pdf.internal.pageSize.getWidth();
-          const scale = pageWidth / img.width;
-          pdf.addImage(png, "PNG", 0, 0, pageWidth, img.height * scale);
-          pdf.save("score.pdf");
-          logStatus("PDF保存完了！");
-          URL.revokeObjectURL(svgUrl);
-        };
-        img.src = svgUrl;
-      } catch(e){
-        logStatus("PDF生成エラー: " + e);
+      const pageWidth = 794;   // A4 横幅(px)
+      const pageHeight = 1123; // A4 高さ(px)
+      const pdf = new jsPDF({orientation: "portrait", unit: "px", format: [pageWidth, pageHeight]});
+
+      const totalPages = Math.ceil(canvas.height / pageHeight);
+      for (let i = 0; i < totalPages; i++) {
+        const pageCanvas = document.createElement("canvas");
+        pageCanvas.width = canvas.width;
+        pageCanvas.height = pageHeight;
+        const pageCtx = pageCanvas.getContext("2d");
+
+        // 各ページごとにコピー
+        pageCtx.drawImage(
+          canvas,
+          0,
+          i * pageHeight,
+          canvas.width,
+          pageHeight,
+          0,
+          0,
+          canvas.width,
+          pageHeight
+        );
+
+        const pagePng = pageCanvas.toDataURL("image/png", 1.0);
+        if (i > 0) pdf.addPage();
+        pdf.addImage(pagePng, "PNG", 0, 0, pageWidth, pageHeight);
       }
-    });
+
+      pdf.save("score.pdf");
+      URL.revokeObjectURL(svgUrl);
+      logStatus("PDF保存完了！（ページ数: " + totalPages + "）");
+    };
+
+    img.onerror = () => logStatus("SVG→画像変換エラー");
+    img.src = svgUrl;
+  } catch (e) {
+    logStatus("PDF生成エラー: " + e);
   }
 });
+
 </script>
 </body>
 </html>
