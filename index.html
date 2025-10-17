@@ -7,7 +7,7 @@
   <style>
     body{font-family:sans-serif;padding:1.5em;background:#f4f7fb;text-align:center}
     #scoreContainer{background:#fff;border:1px solid #ccc;min-height:220px;padding:1em;margin:1em auto;max-width:900px}
-    #status{white-space:pre-line;text-align:left;max-width:900px;margin:0 auto;background:#fff;border:1px solid #ddd;padding:0.6em;height:200px;overflow-y:auto;}
+    #status{white-space:pre-line;text-align:left;max-width:900px;margin:0 auto;background:#fff;border:1px solid #ddd;padding:0.6em}
     input,button{padding:0.6em 1em;margin:0.4em}
   </style>
 </head>
@@ -15,86 +15,37 @@
   <h1>xml→ドレミ付き楽譜</h1>
 
   <div>
+    <!-- 透明にして重ねる方式は避ける（iPadの不具合回避） -->
     <input type="file" id="fileInput" accept=".xml,.musicxml" />
     <button id="loadBtn">読み込み開始</button>
     <button id="pdfBtn">PDFプレビュー / 保存</button>
   </div>
 
-  <p id="status">待機中</p>
+  <p id="status">ステータス：待機中</p>
 
   <div id="scoreContainer"></div>
 
   <!-- ライブラリ -->
- <!-- ここを既存の opensheetmusicdisplay <script> の代わりに貼ってください -->
-<script>
-(function(){
-  const statusEl = document.getElementById ? document.getElementById('status') : null;
-  function log(s){ if(statusEl) statusEl.textContent = (new Date()).toLocaleTimeString() + ' — ' + s; console.log(s); }
-
-  const urls = [
-    // try multiple known good endpoints (order matters)
-    "https://cdn.jsdelivr.net/npm/opensheetmusicdisplay@1.7.6/build/opensheetmusicdisplay.min.js",
-    "https://cdn.jsdelivr.net/npm/opensheetmusicdisplay/build/opensheetmusicdisplay.min.js",
-    "https://unpkg.com/opensheetmusicdisplay/build/opensheetmusicdisplay.min.js",
-    // fallback to raw github (may 404 on some hosts) — keep last
-    "https://raw.githubusercontent.com/opensheetmusicdisplay/opensheetmusicdisplay/master/build/opensheetmusicdisplay.min.js"
-  ];
-
-  let idx = 0;
-  function tryLoadNext(){
-    if(idx >= urls.length){
-      log("すべてのCDNで読み込み失敗しました。ローカルに保存して参照するか、通信設定（広告ブロッカー／プライベートリレー）を確認してください。");
-      return;
-    }
-    const url = urls[idx++];
-    log("opensheetmusicdisplay を読み込み中: " + url);
-    const s = document.createElement('script');
-    s.src = url;
-    s.async = false;
-    s.onload = () => {
-      log("読み込み成功: " + url);
-      // show what global names exist
-      setTimeout(()=> {
-        log("window.OpenSheetMusicDisplay: " + !!window.OpenSheetMusicDisplay);
-        log("window.opensheetmusicdisplay: " + !!window.opensheetmusicdisplay);
-      }, 50);
-    };
-    s.onerror = (e) => {
-      log("読み込み失敗: " + url);
-      s.remove();
-      tryLoadNext();
-    };
-    document.head.appendChild(s);
-  }
-
-  // start after a tick so DOM / status exists
-  setTimeout(tryLoadNext, 50);
-})();
-</script>
+ <script src="https://unpkg.com/opensheetmusicdisplay/build/opensheetmusicdisplay.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
 <script>
 document.addEventListener("DOMContentLoaded", () => {
   const statusEl = document.getElementById("status");
-  const logBuffer = [];
-  const MAX_LOG = 50; // ログ履歴最大数
+  function logStatus(s){ statusEl.textContent = (new Date()).toLocaleTimeString() + " — " + s; }
 
-  function logStatus(s){
-    const time = (new Date()).toLocaleTimeString();
-    logBuffer.push(`${time} — ${s}`);
-    if(logBuffer.length > MAX_LOG) logBuffer.shift();
-    statusEl.textContent = logBuffer.join("\n");
+  // Safari対応でjsPDFを確保
+  try {
+    window.jsPDF = window.jspdf && window.jspdf.jsPDF ? window.jspdf.jsPDF : window.jsPDF;
+  } catch(e){
+    // nothing
   }
-
-  // JS例外も表示（グローバル）
-  window.onerror = function(message, source, lineno, colno, error){
-    logStatus(`JSエラー: ${message} (${source}:${lineno}:${colno})`);
-    if(error && error.stack) logStatus("Stack:\n" + error.stack);
-  };
 
   logStatus("ライブラリ読み込みチェック中...");
 
-  // ライブラリ存在チェック
-  if(!window.OpenSheetMusicDisplay){
+  // ライブラリ存在チェック（見える化）
+  if(!window.opensheetmusicdisplay){
     logStatus("エラー: OpenSheetMusicDisplay が読み込まれていません。ネット接続を確認してください。");
     return;
   }
@@ -108,19 +59,18 @@ document.addEventListener("DOMContentLoaded", () => {
     logStatus("ライブラリ読み込みOK。OSMD初期化します...");
   }
 
-  // OSMD 初期化
+  // OSMD 初期化（DOM確実参照）
   let osmd;
   try {
     const container = document.getElementById("scoreContainer");
-    osmd = new (window.OpenSheetMusicDisplay || window.opensheetmusicdisplay.OpenSheetMusicDisplay)(container);
+    osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay(container);
     logStatus("OSMD初期化完了。ファイルを選択して「読み込み開始」を押してください。");
   } catch(err){
     logStatus("エラー: OSMD初期化に失敗しました。\n" + err.toString());
-    if(err.stack) logStatus("Stack:\n" + err.stack);
     return;
   }
 
-  // ドレミ変換
+  // 変換ヘルパー（ドレミ付与）
   function toDoremi(step, alter, octave){
     const base = {C:"ド", D:"レ", E:"ミ", F:"ファ", G:"ソ", A:"ラ", B:"シ"};
     let name = base[step] || step;
@@ -133,14 +83,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function processXML(xmlText){
     try{
-      logStatus("XMLパース開始...");
       const parser = new DOMParser();
       const xmlDoc = parser.parseFromString(xmlText,"text/xml");
       // check parseerror
       const pe = xmlDoc.getElementsByTagName("parsererror");
       if(pe.length) throw new Error("XML parse error");
       const notes = xmlDoc.getElementsByTagName("note");
-      logStatus(`noteタグ検出: ${notes.length}件`);
       for(let i=0;i<notes.length;i++){
         const n = notes[i];
         const pitch = n.getElementsByTagName("pitch")[0];
@@ -156,12 +104,9 @@ document.addEventListener("DOMContentLoaded", () => {
           n.appendChild(lyric);
         }
       }
-      logStatus("XMLドレミ加工完了");
       return new XMLSerializer().serializeToString(xmlDoc);
     } catch(e){
-      logStatus("processXML失敗: " + e.message);
-      if(e.stack) logStatus("Stack:\n" + e.stack);
-      throw e;
+      throw new Error("processXML失敗: " + e.message);
     }
   }
 
@@ -180,96 +125,87 @@ document.addEventListener("DOMContentLoaded", () => {
     reader.onloadstart = () => logStatus("FileReader: 読み込み開始...");
     reader.onerror = () => logStatus("FileReader: 読み込みエラーが発生しました。ファイルを確認してください。");
     reader.onabort = () => logStatus("FileReader: 読み込みが中断されました。");
-    reader.onload = async (e) => {
-      try {
-        logStatus("FileReader: 読み込み成功。XML処理中...");
-        const processedXml = processXML(e.target.result);
-        logStatus("XML加工完了。OSMDにロード中...");
-        await osmd.load(processedXml);
-        logStatus("OSMD.load 完了。レンダリング中...");
-        await osmd.render();
-        logStatus("レンダリング完了：楽譜が表示されました。 (" + file.name + ")");
-      } catch(err){
-        logStatus("読み込み/描画エラー:\n" + err.toString());
-        if(err.stack) logStatus("Stack:\n" + err.stack);
-      }
-    };
+  reader.onload = async (e) => {
+  try {
+    logStatus("FileReader: 読み込み成功。XML処理中...");
+    if (e.target.result instanceof ArrayBuffer) {
+      // .mxl (zip形式) の場合
+      logStatus("MXL形式を検出。OSMDに直接ロードします...");
+      await osmd.load(e.target.result);
+    } else {
+      // .xml の場合
+      const processedXml = processXML(e.target.result);
+      logStatus("XML加工完了。OSMDにロード中...");
+      await osmd.load(processedXml);
+    }
 
+    logStatus("OSMD.load 完了。レンダリング中...");
+    await osmd.render();
+    logStatus("レンダリング完了：楽譜が表示されました。 (" + file.name + ")");
+  } catch(err){
+    logStatus("読み込み/描画エラー:\n" + err.toString());
+  }
+};
+
+    // iPadでの文字コード問題回避
+  if (file.name.endsWith(".mxl")) {
+  reader.readAsArrayBuffer(file);
+  } else {
     reader.readAsText(file, "UTF-8");
+}
   });
 
   const pdfBtn = document.getElementById("pdfBtn");
-  pdfBtn.addEventListener("click", async () => {
-    try {
-      logStatus("PDF処理：SVG→PNG変換中...");
+pdfBtn.addEventListener("click", async () => {
+  try {
+    const container = document.getElementById("scoreContainer");
+    const svg = container.querySelector("svg");
+    if (!svg) {
+      logStatus("エラー: SVG が見つかりません（楽譜がまだ描画されていません）。");
+      return;
+    }
 
-      const svg = document.querySelector("#scoreContainer svg");
-      if (!svg) {
-        logStatus("エラー: 楽譜SVGが見つかりません。まず楽譜を読み込んでください。");
-        return;
-      }
+    logStatus("PDF処理：SVG→画像変換中...");
 
-      async function svgToPngDataUrl(svgElement, width, height) {
-        const serializer = new XMLSerializer();
-        let svgString = serializer.serializeToString(svgElement);
-        if (!svgString.match(/^<svg[^>]+xmlns="http:\/\/www\.w3\.org\/2000\/svg"/)) {
-          svgString = svgString.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
-        }
-        svgString = svgString.replace(/<svg([^>]*)>/, `<svg$1><rect width="100%" height="100%" fill="#ffffff"/>`);
+    // SVGをPNG画像に変換
+    const svgData = new XMLSerializer().serializeToString(svg);
+    const svgBlob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" });
+    const svgUrl = URL.createObjectURL(svgBlob);
+    const img = new Image();
 
-        const blob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
-        const url = URL.createObjectURL(blob);
+    img.onload = async () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0);
 
-        return new Promise((resolve, reject) => {
-          const img = new Image();
-          img.onload = () => {
-            const c = document.createElement("canvas");
-            c.width = width;
-            c.height = height;
-            const ctx = c.getContext("2d");
-            ctx.drawImage(img, 0, 0, width, height);
-            URL.revokeObjectURL(url);
-            resolve(c.toDataURL("image/png"));
-          };
-          img.onerror = (e) => {
-            URL.revokeObjectURL(url);
-            logStatus("SVG→PNG変換失敗: " + e.toString());
-            reject(e);
-          };
-          img.src = url;
-        });
-      }
-
+      const pngData = canvas.toDataURL("image/png");
       const jsPDFConstructor = window.jspdf?.jsPDF || window.jsPDF;
       if (!jsPDFConstructor) {
         logStatus("エラー: jsPDF が利用できません。");
         return;
       }
 
-      const pdf = new jsPDFConstructor("p", "pt", "a4");
-      const pdfWidthPt = pdf.internal.pageSize.getWidth();
-      const svgBBox = svg.getBBox ? svg.getBBox() : null;
-      const svgWidth = svgBBox?.width || svg.clientWidth || 800;
-      const svgHeight = svgBBox?.height || svg.clientHeight || 1000;
-      const targetWidthPx = Math.floor(pdfWidthPt * (96 / 72));
-      const targetHeightPx = Math.max(Math.floor((svgHeight * targetWidthPx) / svgWidth), 100);
+      const pdf = new jsPDFConstructor({orientation: "portrait", unit: "px"});
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const scale = pageWidth / img.width;
+      const pageHeight = img.height * scale;
 
-      logStatus("SVG→PNG変換: " + targetWidthPx + "x" + targetHeightPx);
-      const dataUrl = await svgToPngDataUrl(svg, targetWidthPx, targetHeightPx);
-
-      logStatus("PNG変換完了。PDFに追加中...");
-      const imgProps = pdf.getImageProperties(dataUrl);
-      const pdfW = pdf.internal.pageSize.getWidth();
-      const pdfH = (imgProps.height * pdfW) / imgProps.width;
-      pdf.addImage(dataUrl, "PNG", 0, 0, pdfW, pdfH);
-
-      pdf.save("score_doremi.pdf");
+      pdf.addImage(pngData, "PNG", 0, 0, pageWidth, pageHeight);
+      pdf.save("score.pdf");
       logStatus("PDF保存完了！");
-    } catch (e) {
-      logStatus("PDF生成でエラー: " + e.toString());
-      if(e.stack) logStatus("Stack:\n" + e.stack);
-    }
-  });
+      URL.revokeObjectURL(svgUrl);
+    };
+
+    img.onerror = () => {
+      logStatus("エラー: SVG→画像変換に失敗しました。");
+    };
+
+    img.src = svgUrl;
+  } catch (e) {
+    logStatus("PDF生成でエラー: " + e.toString());
+  }
 });
 </script>
 </body>
