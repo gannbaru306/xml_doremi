@@ -24,42 +24,31 @@
   <div id="scoreContainer"></div>
 
   <!-- ライブラリ -->
-  <script src="https://unpkg.com/opensheetmusicdisplay/build/opensheetmusicdisplay.min.js" defer></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" defer></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
+  <!-- ライブラリ -->
+  <script src="https://unpkg.com/opensheetmusicdisplay/build/opensheetmusicdisplay.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
-<script>
-document.addEventListener("DOMContentLoaded", () => {
-  const statusEl = document.getElementById("status");
-  function logStatus(s){ statusEl.textContent = (new Date()).toLocaleTimeString() + " — " + s; }
-
-  logStatus("ライブラリ読み込みチェック中...");
-
-  // OSMDを待つループ
-  const waitForOSMD = setInterval(() => {
-    if (window.opensheetmusicdisplay) {
-      clearInterval(waitForOSMD);
-      logStatus("OSMDロード完了！初期化を開始します...");
-      initApp();
-    } else {
-      logStatus("OSMDを読み込み中...（通信待機）");
-    }
-  }, 700);
+  <script>
+  window.addEventListener("load", () => {
+    // ライブラリが全て読み込まれてから初期化
+ if (!window.opensheetmusicdisplay && !window.opensheetmusicdisplay.OpenSheetMusicDisplay) {
+  alert("OSMDの読み込みに失敗しました。ネット接続を確認してください。");
+  return;
+}
+    console.log("OSMDロード完了");
+    initApp(); // ← 下で定義
+  });
 
   async function initApp(){
-    logStatus("OSMD初期化中...");
-    const container = document.getElementById("scoreContainer");
+    const statusEl = document.getElementById("status");
+    function logStatus(s){ statusEl.textContent = new Date().toLocaleTimeString() + " — " + s; }
 
-    // Safari対策
+    const container = document.getElementById("scoreContainer");
     window.jsPDF = window.jspdf?.jsPDF || window.jsPDF;
-    let osmd;
-    try {
-      osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay(container);
-      logStatus("OSMD初期化完了。ファイルを選択して「読み込み開始」を押してください。");
-    } catch(err){
-      logStatus("エラー: OSMD初期化失敗\n" + err);
-      return;
-    }
+
+    let osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay(container);
+    logStatus("OSMD初期化完了。ファイルを選択して「読み込み開始」を押してください。");
 
     // ドレミ変換
     function toDoremi(step, alter, octave){
