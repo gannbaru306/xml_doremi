@@ -12,7 +12,7 @@
   </style>
 </head>
 <body>
-  <h1>xml→ドレミ付き楽譜 v2</h1>
+  <h1>xml→ドレミ付き楽譜v2.0</h1>
 
   <div>
     <input type="file" id="fileInput" accept=".xml,.musicxml,.mxl" />
@@ -49,7 +49,17 @@
     const container = document.getElementById("scoreContainer");
     window.jsPDF = window.jspdf?.jsPDF || window.jsPDF;
 
-    const osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay(container);
+   const osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay(container, {
+  backend: "svg",
+  drawingParameters: "default",
+  drawTitle: true,
+  pageFormat: "A4",              
+  pageBackgroundColor: "#ffffff",
+  renderSingleHorizontalStaffline: false,
+  drawPartNames: true,
+  autoResize: true,
+  zoom: 1.0,                     
+});
     logStatus("OSMD初期化完了。ファイルを選択して「読み込み開始」を押してください。");
 
     function toDoremi(step, alter, octave){
