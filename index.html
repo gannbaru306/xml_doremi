@@ -1,296 +1,131 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>xml→ドレミ付き楽譜（改良版）</title>
-  <style>
-    body{font-family:sans-serif;padding:1.2em;background:#f4f7fb;text-align:center}
-    #scoreContainer{background:#fff;border:1px solid #ccc;min-height:240px;padding:1em;margin:1em auto;max-width:900px}
-    #status{white-space:pre-line;text-align:left;max-width:900px;margin:0 auto;background:#fff;border:1px solid #ddd;padding:0.6em;height:120px;overflow:auto;}
-    input,button{padding:0.6em 1em;margin:0.4em}
-  </style>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MusicXML ドレミ自動付与ツール（和音対応）</title>
+<style>
+body {
+  font-family: sans-serif;
+  padding: 2em;
+  background: #f7f7f7;
+}
+h1 { color: #333; }
+button {
+  margin-top: 1em;
+  padding: 0.6em 1.2em;
+  background: #0078d7;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+button:hover { background: #005ea6; }
+#preview {
+  background: #fff;
+  padding: 1em;
+  border: 1px solid #ccc;
+  margin-top: 1em;
+  white-space: pre-wrap;
+  font-size: 0.9em;
+}
+</style>
 </head>
 <body>
-  <h1>xml→ドレミ付き楽譜（改良版）</h1>
+<h1>🎵 MusicXML ドレミ付与（オクターブ＋和音対応＋サイズ調整）</h1>
+<p>MusicXML ファイルを選択してください。</p>
+<input type="file" id="fileInput" accept=".xml,.musicxml" />
+<button id="processBtn">ドレミ付きXMLを生成</button>
 
-  <div>
-    <input type="file" id="fileInput" accept=".xml,.musicxml,.mxl" />
-    <button id="loadBtn">読み込み開始</button>
-    <button id="pdfBtn">PDFプレビュー / 保存</button>
-  </div>
-
-  <p id="status">初期化待ち...</p>
-  <div id="scoreContainer"></div>
-
-  <!-- ライブラリ（CDN） -->
-  <script src="https://cdn.jsdelivr.net/npm/opensheetmusicdisplay@1.7.6/build/opensheetmusicdisplay.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<h2>出力</h2>
+<a id="downloadLink" style="display:none;">score_doremi.xml をダウンロード</a>
+<pre id="preview"></pre>
 
 <script>
-(async function () {
-  const statusEl = document.getElementById("status");
-  function setStatus(s){ statusEl.textContent = new Date().toLocaleTimeString() + " — " + s; }
+/** ドレミ変換 + オクターブ上付き数字 */
+function toDoremi(step, alter, octave) {
+  const base = {C:"ド", D:"レ", E:"ミ", F:"ファ", G:"ソ", A:"ラ", B:"シ"};
+  let name = base[step] || step;
+  if (alter === 1) name += "♯";
+  if (alter === -1) name += "♭";
+  const supers = String(octave).replace(/[0-9]/g, d => "⁰¹²³⁴⁵⁶⁷⁸⁹"[d]);
+  return name + supers;
+}
 
-  setStatus("ライブラリ読み込み待ち...");
+/** メイン処理 */
+document.getElementById("processBtn").onclick = () => {
+  const file = document.getElementById("fileInput").files[0];
+  if (!file) return alert("MusicXMLファイルを選択してください。");
 
-  // 汎用的に OSMD を検出する（オブジェクト名の違いを吸収）
-  function getOSMDConstructor() {
-    return window.OpenSheetMusicDisplay || (window.opensheetmusicdisplay && window.opensheetmusicdisplay.OpenSheetMusicDisplay) || null;
-  }
+  const reader = new FileReader();
+  reader.onload = e => {
+    const parser = new DOMParser();
+    const xmlDoc = parser.parseFromString(e.target.result, "text/xml");
+    const notes = xmlDoc.getElementsByTagName("note");
 
-  // wait for OSMD to appear (max timeout)
-  const waitForOSMD = (timeoutMs = 10000) => new Promise((resolve, reject) => {
-    const start = Date.now();
-    const iv = setInterval(() => {
-      const Ctor = getOSMDConstructor();
-      if (Ctor) { clearInterval(iv); resolve(Ctor); return; }
-      if (Date.now() - start > timeoutMs) { clearInterval(iv); reject(new Error("OSMD not found")); }
-    }, 300);
-  });
+    let chordCount = 0;
+    let group = [];
 
-  try {
-    const OSMDCtor = await waitForOSMD(10000);
-    setStatus("OSMD 検出。初期化します...");
-    initApp(OSMDCtor);
-  } catch (e) {
-    setStatus("エラー: OSMD が検出できません。ネットワークや CDN を確認してください。");
-    return;
-  }
+    for (let i = 0; i < notes.length; i++) {
+      const n = notes[i];
+      const isChord = n.getElementsByTagName("chord").length > 0;
 
-  function initApp(OSMDCtor) {
-    const container = document.getElementById("scoreContainer");
-
-    const osmd = new OSMDCtor(container, {
-      backend: "svg",
-      drawingParameters: "default",
-      drawTitle: true,
-      drawPartNames: true,
-      autoResize: true,
-      pageBackgroundColor: "#ffffff",
-    });
-
-    setStatus("OSMD 初期化完了。ファイルを選択して「読み込み開始」を押してください。");
-
-    // ドレミ変換
-    function toDoremi(step, alter, octave){
-      const base = {C:"ド", D:"レ", E:"ミ", F:"ファ", G:"ソ", A:"ラ", B:"シ"};
-      let name = base[step] || step;
-      if (alter === 1) name += "#";
-      if (alter === -1) name += "♭";
-      const offset = octave - 4 + 2;
-      const supers = ["⁻¹","⁰","¹","²","³","⁴","⁵","⁶","⁷","⁸"][offset] || `(${octave})`;
-      return name + supers;
-    }
-
-    // MusicXML に lyric を付ける（和音・両手対応、ユニーク番号）
-    function processXML(xmlText) {
-      const parser = new DOMParser();
-      const xmlDoc = parser.parseFromString(xmlText, "text/xml");
-      if (xmlDoc.getElementsByTagName("parsererror").length) throw new Error("XML parse error");
-
-      const parts = xmlDoc.getElementsByTagName("part");
-      let globalLyricCounter = 1;
-
-      for (let p = 0; p < parts.length; p++) {
-        const part = parts[p];
-        // Note: getElementsByTagName はパート内全ノートを返す（measure などをまたいで）
-        const notes = part.getElementsByTagName("note");
-        let chordGroup = [];
-
-        function flushChordGroup() {
-          if (chordGroup.length === 0) return;
-          if (chordGroup.length === 1) {
-            // 単音は number を 1 固定でもよいが、ユニークにすることでページ跨ぎの衝突を避ける
-            const noteNode = chordGroup[0];
-            const pitch = noteNode.getElementsByTagName("pitch")[0];
-            if (pitch) {
-              const step = pitch.getElementsByTagName("step")[0]?.textContent;
-              const alter = parseInt(pitch.getElementsByTagName("alter")[0]?.textContent || 0);
-              const octave = parseInt(pitch.getElementsByTagName("octave")[0]?.textContent || 4);
-              const lyricText = toDoremi(step, alter, octave);
-              const lyric = xmlDoc.createElement("lyric");
-              lyric.setAttribute("number", String(globalLyricCounter++));
-              const text = xmlDoc.createElement("text");
-              text.textContent = lyricText;
-              lyric.appendChild(text);
-              noteNode.appendChild(lyric);
-            }
-            chordGroup = [];
-            return;
-          }
-          // 和音: 上から下へ縦並び (number 1..n)
-          chordGroup.forEach((noteNode, idx) => {
-            const pitch = noteNode.getElementsByTagName("pitch")[0];
-            if (!pitch) return;
-            const step = pitch.getElementsByTagName("step")[0]?.textContent;
-            const alter = parseInt(pitch.getElementsByTagName("alter")[0]?.textContent || 0);
-            const octave = parseInt(pitch.getElementsByTagName("octave")[0]?.textContent || 4);
-            const lyricText = toDoremi(step, alter, octave);
-            const lyric = xmlDoc.createElement("lyric");
-            // number は同和音内での並びに加え、グローバル番号で衝突しないように付与
-            lyric.setAttribute("number", String(globalLyricCounter++));
-            const text = xmlDoc.createElement("text");
-            text.textContent = lyricText;
-            lyric.appendChild(text);
-            noteNode.appendChild(lyric);
-          });
-          chordGroup = [];
-        }
-
-        for (let i = 0; i < notes.length; i++) {
-          const n = notes[i];
-          const isChord = n.getElementsByTagName("chord").length > 0;
-          if (!isChord) { flushChordGroup(); chordGroup = [n]; }
-          else { chordGroup.push(n); }
-        }
-        flushChordGroup();
+      if (!isChord) {
+        // 前の和音を処理
+        if (group.length > 1) applyLyrics(group);
+        group = [n];
+      } else {
+        group.push(n);
       }
 
-      return new XMLSerializer().serializeToString(xmlDoc);
+      // 最後のnoteなら残りを処理
+      if (i === notes.length - 1 && group.length) applyLyrics(group);
     }
 
-    // ファイル読み込み
-    const fileInput = document.getElementById("fileInput");
-    document.getElementById("loadBtn").addEventListener("click", () => {
-      const file = fileInput.files[0];
-      if (!file) { setStatus("ファイル未選択"); return; }
+    /** 和音1セットごとにドレミ付与 */
+    function applyLyrics(noteGroup) {
+      const count = noteGroup.length;
+      noteGroup.forEach((noteNode, idx) => {
+        const pitch = noteNode.getElementsByTagName("pitch")[0];
+        if (!pitch) return;
+        const step = pitch.getElementsByTagName("step")[0]?.textContent;
+        const alter = parseInt(pitch.getElementsByTagName("alter")[0]?.textContent || 0);
+        const octave = parseInt(pitch.getElementsByTagName("octave")[0]?.textContent || 4);
+        const lyricText = toDoremi(step, alter, octave);
 
-      setStatus("読み込み開始: " + file.name);
-      const reader = new FileReader();
+        const lyric = xmlDoc.createElement("lyric");
+        lyric.setAttribute("number", idx + 1);
 
-      reader.onload = async (e) => {
-        try {
-          if (file.name.toLowerCase().endsWith(".mxl")) {
-            // MXL は ArrayBuffer を OSMD に渡す
-            await osmd.load(e.target.result);
-          } else {
-            const procXml = processXML(e.target.result);
-            await osmd.load(procXml);
-          }
-          setStatus("レンダリング中...");
-          await osmd.render();
-          setStatus("レンダリング完了");
-        } catch (err) {
-          setStatus("読み込み/レンダリング失敗: " + err);
-          console.error(err);
-        }
-      };
+        const text = xmlDoc.createElement("text");
+        text.textContent = lyricText;
+        lyric.appendChild(text);
 
-      if (file.name.toLowerCase().endsWith(".mxl")) reader.readAsArrayBuffer(file);
-      else reader.readAsText(file, "UTF-8");
-    });
+        // ▼ 和音数に応じたサイズ調整（1音→100%、2音→85%、3音→75%、4音以上→65%）
+        const size = Math.max(65, 100 - (count - 1) * 15);
+        const font = xmlDoc.createElement("font");
+        font.setAttribute("font-size", size + "%");
+        lyric.appendChild(font);
 
-    // PDF 出力（比率維持・高画質・ページ分割）
-    document.getElementById("pdfBtn").addEventListener("click", async () => {
-      try {
-        const svg = container.querySelector("svg");
-        if (!svg) { setStatus("まだ楽譜がありません。"); return; }
-        setStatus("PDF生成中...");
+        noteNode.appendChild(lyric);
+      });
+    }
 
-        // SVG 実寸（viewBox優先）
-        let svgW = 0, svgH = 0;
-        try {
-          if (svg.viewBox && svg.viewBox.baseVal && svg.viewBox.baseVal.width) {
-            svgW = svg.viewBox.baseVal.width;
-            svgH = svg.viewBox.baseVal.height;
-          } else if (svg.getAttribute("width") && svg.getAttribute("height")) {
-            svgW = parseFloat(svg.getAttribute("width"));
-            svgH = parseFloat(svg.getAttribute("height"));
-          } else {
-            const b = svg.getBBox ? svg.getBBox() : svg.getBoundingClientRect();
-            svgW = b.width;
-            svgH = b.height;
-          }
-        } catch (e) {
-          const r = svg.getBoundingClientRect();
-          svgW = r.width;
-          svgH = r.height;
-        }
-        if (!svgW || !svgH) { svgW = 800; svgH = 1000; }
+    // 出力
+    const serializer = new XMLSerializer();
+    const output = serializer.serializeToString(xmlDoc);
 
-        // jsPDF ctor
-        const jsPDFCtor = window.jspdf?.jsPDF || window.jsPDF;
-        if (!jsPDFCtor) { setStatus("jsPDF が読み込まれていません。"); return; }
-
-        // PDF（A4 pt）
-        const pdf = new jsPDFCtor({ unit: "pt", format: "a4", orientation: "portrait" });
-        const pageW = pdf.internal.pageSize.getWidth();
-        const pageH = pdf.internal.pageSize.getHeight();
-
-        // 比率を維持してA4幅でレンダリング（幅合わせ）
-        const scale = Math.min(pageW / svgW, pageH / svgH);
-        const renderW = svgW * scale;
-        const renderH = svgH * scale;
-
-        // SVG を文字通り画像にする
-        let svgString = new XMLSerializer().serializeToString(svg);
-        if (!/fill="#ffffff"/i.test(svgString)) {
-          svgString = svgString.replace(/<svg([^>]*)>/, '<svg$1><rect width="100%" height="100%" fill="#ffffff"/>');
-        }
-        const blob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
-        const url = URL.createObjectURL(blob);
-        const img = new Image();
-        img.crossOrigin = "anonymous";
-
-        img.onload = () => {
-          // 高解像度 canvas
-          const DPR = 2; // 2 or 3 recommended; 高画質欲しいなら 3 にするがメモリ注意
-          const canvasW = Math.ceil(renderW * DPR);
-          const canvasH = Math.ceil(renderH * DPR);
-          const c = document.createElement("canvas");
-          c.width = canvasW;
-          c.height = canvasH;
-          const ctx = c.getContext("2d");
-          ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-          ctx.drawImage(img, 0, 0, renderW, renderH);
-
-          // ページ毎のピクセル高さ（canvas単位）
-          const pagePixelHeight = Math.ceil(pageH * DPR);
-          let yPixel = 0;
-          let pageCount = 0;
-
-          while (yPixel < c.height) {
-            // 切り出す高さ（最後のページは残りピクセルまで）
-            const sliceHeight = Math.min(pagePixelHeight, c.height - yPixel);
-            const sliceCanvas = document.createElement("canvas");
-            sliceCanvas.width = c.width;
-            sliceCanvas.height = sliceHeight;
-            const sctx = sliceCanvas.getContext("2d");
-            sctx.drawImage(c, 0, yPixel, c.width, sliceHeight, 0, 0, c.width, sliceHeight);
-
-            const data = sliceCanvas.toDataURL("image/png", 1.0);
-
-            // PDF へ追加（幅を pageW に合わせて描画、高さは比率で算出）
-            const drawWidth = pageW;
-            const drawHeight = (sliceCanvas.height / DPR) * (pageW / renderW);
-
-            if (pageCount > 0) pdf.addPage();
-            pdf.addImage(data, "PNG", 0, 0, drawWidth, drawHeight);
-
-            yPixel += sliceHeight;
-            pageCount++;
-          }
-
-          pdf.save("score_doremi.pdf");
-          URL.revokeObjectURL(url);
-          setStatus("PDF保存完了（" + pageCount + "ページ）");
-        };
-
-        img.onerror = (e) => {
-          URL.revokeObjectURL(url);
-          setStatus("SVG→画像変換で失敗しました。");
-        };
-
-        img.src = url;
-      } catch (err) {
-        setStatus("PDF生成エラー: " + err);
-        console.error(err);
-      }
-    });
-
-  } // initApp end
-})(); // IIFE end
+    // プレビュー＆ダウンロードリンク作成
+    document.getElementById("preview").textContent = output.substring(0, 2000) + "\n...\n";
+    const blob = new Blob([output], { type: "application/xml" });
+    const url = URL.createObjectURL(blob);
+    const link = document.getElementById("downloadLink");
+    link.href = url;
+    link.download = "score_doremi.xml";
+    link.style.display = "inline";
+    link.textContent = "score_doremi.xml をダウンロード";
+  };
+  reader.readAsText(file);
+};
 </script>
 </body>
 </html>
