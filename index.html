@@ -162,18 +162,28 @@ document.getElementById("pdfBtn").addEventListener("click", async () => {
       const imgData = canvas.toDataURL("image/png", 1.0);
 
       let yOffset = 0;
-      while (yOffset < renderHeight) {
-        pdf.addImage(
-          imgData,
-          "PNG",
-          0,
-          -yOffset,
-          renderWidth,
-          renderHeight
-        );
-        yOffset += pageHeight;
-        if (yOffset < renderHeight) pdf.addPage();
-      }
+while (yOffset < imgHeight) {
+  // ページ用キャンバスを作成
+  const pageCanvas = document.createElement("canvas");
+  pageCanvas.width = img.width;
+  pageCanvas.height = pageHeight / ratio; // 1ページ分の高さをピクセル換算
+  const pctx = pageCanvas.getContext("2d");
+
+  // 元画像から一部を切り抜き
+  pctx.drawImage(
+    img,
+    0, yOffset,                // ソース位置
+    img.width, pageCanvas.height, // ソースサイズ
+    0, 0,                      // 出力位置
+    img.width, pageCanvas.height // 出力サイズ
+  );
+
+  const pageData = pageCanvas.toDataURL("image/png", 1.0);
+  pdf.addImage(pageData, "PNG", 0, 0, renderWidth, (pageCanvas.height * ratio));
+
+  yOffset += pageCanvas.height;
+  if (yOffset < imgHeight) pdf.addPage();
+}
 
       pdf.save("score.pdf");
       URL.revokeObjectURL(svgUrl);
