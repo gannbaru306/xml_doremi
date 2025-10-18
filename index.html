@@ -122,65 +122,66 @@
       else reader.readAsText(file, "UTF-8");
     });
 
-    // ===== PDF出力（比率保持）=====
-    document.getElementById("pdfBtn").addEventListener("click", async () => {
-      try {
-        const svg = container.querySelector("svg");
-        if (!svg) return logStatus("まだ楽譜がありません。");
+document.getElementById("pdfBtn").addEventListener("click", async () => {
+  try {
+    const svg = container.querySelector("svg");
+    if (!svg) return logStatus("まだ楽譜がありません。");
 
-        logStatus("PDF生成中...");
-        const svgData = new XMLSerializer().serializeToString(svg);
-        const svgBlob = new Blob([svgData], { type: "image/svg+xml" });
-        const svgUrl = URL.createObjectURL(svgBlob);
+    logStatus("PDFをページ分割して生成中...");
 
-        const img = new Image();
-        img.onload = async () => {
-          const scale = 2;
-          const canvas = document.createElement("canvas");
-          canvas.width = img.width * scale;
-          canvas.height = img.height * scale;
-          const ctx = canvas.getContext("2d");
-          ctx.scale(scale, scale);
-          ctx.drawImage(img, 0, 0);
+    const svgData = new XMLSerializer().serializeToString(svg);
+    const svgBlob = new Blob([svgData], { type: "image/svg+xml" });
+    const svgUrl = URL.createObjectURL(svgBlob);
 
-          const pdf = new jsPDF({
-            orientation: img.width > img.height ? "landscape" : "portrait",
-            unit: "pt",
-            format: "a4"
-          });
+    const img = new Image();
+    img.onload = async () => {
+      const scale = 2; // 高解像度
+      const canvas = document.createElement("canvas");
+      canvas.width = img.width * scale;
+      canvas.height = img.height * scale;
+      const ctx = canvas.getContext("2d");
+      ctx.scale(scale, scale);
+      ctx.drawImage(img, 0, 0);
 
-          const pageWidth = pdf.internal.pageSize.getWidth();
-          const pageHeight = pdf.internal.pageSize.getHeight();
-          const imgRatio = img.width / img.height;
-          const pageRatio = pageWidth / pageHeight;
-          let renderWidth, renderHeight;
-          if (imgRatio > pageRatio) {
-            renderWidth = pageWidth;
-            renderHeight = pageWidth / imgRatio;
-          } else {
-            renderHeight = pageHeight;
-            renderWidth = pageHeight * imgRatio;
-          }
+      const pdf = new jsPDF({
+        orientation: img.width > img.height ? "landscape" : "portrait",
+        unit: "pt",
+        format: "a4"
+      });
 
-          const imgData = canvas.toDataURL("image/png", 1.0);
-          pdf.addImage(
-            imgData,
-            "PNG",
-            (pageWidth - renderWidth) / 2,
-            (pageHeight - renderHeight) / 2,
-            renderWidth,
-            renderHeight
-          );
-          pdf.save("score.pdf");
-          URL.revokeObjectURL(svgUrl);
-          logStatus("PDF保存完了！（比率保持）");
-        };
-        img.src = svgUrl;
-      } catch (e) {
-        logStatus("PDF生成エラー: " + e);
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const imgWidth = canvas.width / scale;
+      const imgHeight = canvas.height / scale;
+      const ratio = Math.min(pageWidth / imgWidth, pageHeight / imgHeight);
+      const renderWidth = imgWidth * ratio;
+      const renderHeight = imgHeight * ratio;
+
+      const imgData = canvas.toDataURL("image/png", 1.0);
+
+      let yOffset = 0;
+      while (yOffset < renderHeight) {
+        pdf.addImage(
+          imgData,
+          "PNG",
+          0,
+          -yOffset,
+          renderWidth,
+          renderHeight
+        );
+        yOffset += pageHeight;
+        if (yOffset < renderHeight) pdf.addPage();
       }
-    });
+
+      pdf.save("score.pdf");
+      URL.revokeObjectURL(svgUrl);
+      logStatus("PDF保存完了！（ページ分割対応）");
+    };
+    img.src = svgUrl;
+  } catch (e) {
+    logStatus("PDF生成エラー: " + e);
   }
+});
   </script>
 </body>
 </html>
