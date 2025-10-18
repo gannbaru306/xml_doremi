@@ -169,93 +169,83 @@
     });
 
 document.getElementById("pdfBtn").addEventListener("click", async () => {
-  try {
-    const svg = container.querySelector("svg");
-    if (!svg) { log("SVGが見つかりません（先にレンダリングしてください）"); return; }
-    log("PDF生成開始（比率維持・ページ分割）");
+  const svg = container.querySelector("svg");
+  if (!svg) return logStatus("まだ楽譜がありません。");
 
-    let svgW = 0, svgH = 0;
-    try {
-      if (svg.viewBox?.baseVal?.width) {
-        svgW = svg.viewBox.baseVal.width;
-        svgH = svg.viewBox.baseVal.height;
-      } else if (svg.getAttribute("width")) {
-        svgW = parseFloat(svg.getAttribute("width"));
-        svgH = parseFloat(svg.getAttribute("height"));
-      } else {
-        const b = svg.getBBox ? svg.getBBox() : svg.getBoundingClientRect();
-        svgW = b.width; svgH = b.height;
-      }
-    } catch {
-      const r = svg.getBoundingClientRect();
-      svgW = r.width; svgH = r.height;
-    }
+  logStatus("PDFを生成中（高画質・比率維持）...");
 
+  // SVGサイズの取得
+  const vb = svg.viewBox?.baseVal;
+  const svgW = vb?.width || parseFloat(svg.getAttribute("width")) || 1000;
+  const svgH = vb?.height || parseFloat(svg.getAttribute("height")) || 1400;
+
+  // SVGを画像化
+  const svgStr = new XMLSerializer().serializeToString(svg);
+  const blob = new Blob([svgStr], { type: "image/svg+xml;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const img = new Image();
+  img.crossOrigin = "anonymous";
+
+  img.onload = () => {
     const { jsPDF } = window.jspdf || {};
-    const PDFctor = jsPDF || window.jsPDF;
-    if (!PDFctor) { log("jsPDFが見つかりません。PDF不可"); return; }
+    if (!jsPDF) return logStatus("jsPDFが読み込まれていません。");
+    const pdf = new jsPDF({ unit: "pt", format: "a4", orientation: "portrait" });
 
-    const pdf = new PDFctor({ unit: "pt", format: "a4", orientation: "portrait" });
     const pageW = pdf.internal.pageSize.getWidth();
     const pageH = pdf.internal.pageSize.getHeight();
 
+    // 比率を固定して拡大縮小
     const scale = Math.min(pageW / svgW, pageH / svgH);
     const renderW = svgW * scale;
     const renderH = svgH * scale;
 
-    // SVG → Image
-    let svgStr = new XMLSerializer().serializeToString(svg);
-    if (!/fill="#ffffff"/i.test(svgStr)) {
-      svgStr = svgStr.replace(/<svg([^>]*)>/, '<svg$1><rect width="100%" height="100%" fill="#ffffff"/>');
+    // 高解像度レンダリング
+    const DPR = 4; // ← ここで画質調整（3〜5まで上げてもOK）
+    const canvas = document.createElement("canvas");
+    canvas.width = renderW * DPR;
+    canvas.height = renderH * DPR;
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.drawImage(img, 0, 0, renderW, renderH);
+
+    const imgData = canvas.toDataURL("image/png", 1.0);
+
+    // ページ分割（途中で切れないよう正確にスライス）
+    let y = 0;
+    const pageRatio = pageH / renderH;
+    const totalPages = Math.ceil(1 / pageRatio);
+
+    for (let i = 0; i < totalPages; i++) {
+      if (i > 0) pdf.addPage();
+
+      const slice = document.createElement("canvas");
+      slice.width = canvas.width;
+      slice.height = pageH * DPR;
+      const sctx = slice.getContext("2d");
+      sctx.drawImage(
+        canvas,
+        0,
+        y * DPR,
+        canvas.width,
+        slice.height,
+        0,
+        0,
+        canvas.width,
+        slice.height
+      );
+
+      const sliceData = slice.toDataURL("image/png", 1.0);
+      pdf.addImage(sliceData, "PNG", 0, 0, pageW, pageH);
+      y += pageH / scale;
     }
-    const blob = new Blob([svgStr], { type: "image/svg+xml;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const img = new Image();
-    img.crossOrigin = "anonymous";
 
-    img.onload = () => {
-      const DPR = 2;
-      const c = document.createElement("canvas");
-      c.width = Math.ceil(renderW * DPR);
-      c.height = Math.ceil(renderH * DPR);
-      const ctx = c.getContext("2d");
-      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-      ctx.drawImage(img, 0, 0, renderW, renderH);
+    pdf.save("score_highres.pdf");
+    URL.revokeObjectURL(url);
+    logStatus("PDF保存完了！（比率・画質OK）");
+  };
 
-      const imgHeightPt = (c.height / DPR) * (pageW / c.width); // 実際のPDF上での高さ
-      const totalPages = Math.ceil(imgHeightPt / pageH);
-      log(`全${totalPages}ページを生成中...`);
-
-      for (let page = 0; page < totalPages; page++) {
-        if (page > 0) pdf.addPage();
-
-        const sy = (page * pageH * DPR) * (c.width / pageW); // 元画像上のY位置（スケール補正）
-        const sliceHeight = (pageH * DPR) * (c.width / pageW);
-
-        const slice = document.createElement("canvas");
-        slice.width = c.width;
-        slice.height = sliceHeight;
-        slice.getContext("2d").drawImage(c, 0, sy, c.width, sliceHeight, 0, 0, c.width, sliceHeight);
-
-        const data = slice.toDataURL("image/png", 1.0);
-        pdf.addImage(data, "PNG", 0, 0, pageW, pageH);
-      }
-
-      pdf.save("score.pdf");
-      URL.revokeObjectURL(url);
-      log("PDF生成完了！");
-    };
-
-    img.onerror = (e) => {
-      log("画像読み込みエラー: " + e);
-      URL.revokeObjectURL(url);
-    };
-
-    img.src = url;
-  } catch (err) {
-    log("PDF生成で例外: " + err);
-    console.error(err);
-  }
+  img.onerror = () => logStatus("SVG画像の読み込みに失敗しました。");
+  img.src = url;
 });
 
   } // initApp end
