@@ -34,7 +34,7 @@
   logStatus("OSMDライブラリのロード確認中...");
 
   const checkLib = setInterval(() => {
-    if (window.opensheetmusicdisplay?.OpenSheetMusicDisplay) {
+ if (window.OpenSheetMusicDisplay || window.opensheetmusicdisplay?.OpenSheetMusicDisplay) {
       clearInterval(checkLib);
       logStatus("OSMDロード完了！初期化開始...");
       initApp();
