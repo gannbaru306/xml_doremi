@@ -2,8 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>xml→ドレミ付き楽譜生成 by gannbaru306</title>
+  <title>xml→ドレミ付き楽譜v2.1</title>
   <style>
     body{font-family:sans-serif;padding:1.5em;background:#f4f7fb;text-align:center}
     #scoreContainer{background:#fff;border:1px solid #ccc;min-height:220px;padding:1em;margin:1em auto;max-width:900px}
@@ -12,7 +11,7 @@
   </style>
 </head>
 <body>
-  <h1>xml→ドレミ付き楽譜v2.0</h1>
+  <h1>xml→ドレミ付き楽譜v2.1</h1>
 
   <div>
     <input type="file" id="fileInput" accept=".xml,.musicxml,.mxl" />
@@ -20,54 +19,46 @@
     <button id="pdfBtn">PDFプレビュー / 保存</button>
   </div>
 
-  <p id="status">ライブラリ読み込み待機中...</p>
+  <p id="status">ライブラリ読み込み中...</p>
   <div id="scoreContainer"></div>
 
-  <!-- ライブラリは defer なしで確実に先にロード -->
-  <script src="https://cdn.jsdelivr.net/npm/opensheetmusicdisplay@1.7.6/build/opensheetmusicdisplay.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <!-- OSMDとPDF関連ライブラリを先に完全ロード -->
+  <script src="https://cdn.jsdelivr.net/npm/opensheetmusicdisplay@1.7.6/build/opensheetmusicdisplay.min.js" onload="osmdReady()" onerror="loadError('OSMD')"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" onerror="loadError('html2canvas')"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" onerror="loadError('jsPDF')"></script>
 
   <script>
   const statusEl = document.getElementById("status");
   function logStatus(s){ statusEl.textContent = new Date().toLocaleTimeString() + " — " + s; }
+  function loadError(name){ logStatus(`❌ ${name} の読み込みに失敗しました（通信エラーかも）`); }
 
-  logStatus("OSMDライブラリのロード確認中...");
-
-  // OSMDを待つループ
-  const checkLib = setInterval(() => {
-    if (window.opensheetmusicdisplay?.OpenSheetMusicDisplay) {
-      clearInterval(checkLib);
-      logStatus("OSMDロード完了！初期化開始...");
-      initApp();
-    } else {
-      logStatus("OSMDを読み込み中...（ネット通信待機）");
+  function osmdReady(){
+    if (!window.opensheetmusicdisplay?.OpenSheetMusicDisplay) {
+      logStatus("⚠️ OSMDがまだ初期化されていません。再試行中...");
+      setTimeout(osmdReady, 700);
+      return;
     }
-  }, 700);
+    logStatus("✅ OSMDライブラリ読み込み完了！");
+    initApp();
+  }
 
   async function initApp(){
     const container = document.getElementById("scoreContainer");
     window.jsPDF = window.jspdf?.jsPDF || window.jsPDF;
 
-const osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay(container, {
-  backend: "svg",
-  drawingParameters: "default",
-  drawTitle: true,
-  drawPartNames: true,
-  drawFromMeasureNumber: 1,
-  drawUpToMeasureNumber: Number.MAX_SAFE_INTEGER,
-  zoom: 1.0,
-  autoResize: true,
-  pageBackgroundColor: "#ffffff",
-  renderSingleHorizontalStaffline: false,
-});
+    const osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay(container, {
+      backend: "svg",
+      drawingParameters: "default",
+      drawTitle: true,
+      drawPartNames: true,
+      zoom: 1.0,
+      autoResize: true,
+      pageBackgroundColor: "#ffffff",
+    });
 
-osmd.setPageFormat("A4", "portrait");
-osmd.EngravingRules.PageFormat = 0;
-osmd.EngravingRules.RenderSingleHorizontalStaffline = false;
-osmd.EngravingRules.PageMode = 1;
-    logStatus("OSMD初期化完了。ファイルを選択して「読み込み開始」を押してください。");
+    logStatus("🎵 初期化完了。ファイルを選択して「読み込み開始」を押してください。");
 
+    // 音名→ドレミ
     function toDoremi(step, alter, octave){
       const base = {C:"ド", D:"レ", E:"ミ", F:"ファ", G:"ソ", A:"ラ", B:"シ"};
       let name = base[step] || step;
@@ -81,12 +72,8 @@ osmd.EngravingRules.PageMode = 1;
     function processXML(xmlText){
       const parser = new DOMParser();
       const xmlDoc = parser.parseFromString(xmlText, "text/xml");
-      if (xmlDoc.getElementsByTagName("parsererror").length)
-        throw new Error("XML parse error");
-
       const notes = xmlDoc.getElementsByTagName("note");
       let chordGroup = [];
-
       function flushChordGroup(){
         if (chordGroup.length <= 1) { chordGroup = []; return; }
         chordGroup.forEach((noteNode, idx) => {
@@ -105,7 +92,6 @@ osmd.EngravingRules.PageMode = 1;
         });
         chordGroup = [];
       }
-
       for (let i=0; i<notes.length; i++){
         const n = notes[i];
         const isChord = n.getElementsByTagName("chord").length > 0;
@@ -118,7 +104,7 @@ osmd.EngravingRules.PageMode = 1;
 
     document.getElementById("loadBtn").addEventListener("click", () => {
       const file = document.getElementById("fileInput").files[0];
-      if (!file){ logStatus("ファイルを選択してください。"); return; }
+      if (!file){ logStatus("⚠️ ファイルを選択してください。"); return; }
 
       const reader = new FileReader();
       reader.onload = async (e) => {
@@ -126,7 +112,7 @@ osmd.EngravingRules.PageMode = 1;
           if (file.name.endsWith(".mxl")) await osmd.load(e.target.result);
           else await osmd.load(processXML(e.target.result));
           await osmd.render();
-          logStatus("レンダリング完了！");
+          logStatus("レンダリング完了");
         } catch(err){
           logStatus("読み込みエラー: " + err);
         }
@@ -135,132 +121,53 @@ osmd.EngravingRules.PageMode = 1;
       else reader.readAsText(file, "UTF-8");
     });
 
-   // ↓ これを既存の pdfBtn.addEventListener(...) の中身と丸ごと置き換えてください
-document.getElementById("pdfBtn").addEventListener("click", async () => {
-  try {
-    const svg = container.querySelector("svg");
-    if (!svg) {
-      return logStatus("まだ楽譜がありません。");
-    }
-
-    logStatus("PDF生成中...（比率を維持して出力します）");
-
-    // --- SVG のサイズを安全に取得する --- //
-    // 優先順: viewBox のサイズ -> svg width/height 属性 -> getBBox() -> getBoundingClientRect()
-    let svgWidth = 0, svgHeight = 0;
-    try {
-      if (svg.viewBox && svg.viewBox.baseVal && svg.viewBox.baseVal.width) {
-        svgWidth = svg.viewBox.baseVal.width;
-        svgHeight = svg.viewBox.baseVal.height;
-      } else if (svg.getAttribute("width") && svg.getAttribute("height")) {
-        svgWidth = parseFloat(svg.getAttribute("width"));
-        svgHeight = parseFloat(svg.getAttribute("height"));
-      } else {
-        // getBBox は要素内の図形の実寸を返す（フォールバック）
-        const box = svg.getBBox ? svg.getBBox() : null;
-        if (box && box.width && box.height) {
-          svgWidth = box.width;
-          svgHeight = box.height;
-        } else {
-          const rect = svg.getBoundingClientRect();
-          svgWidth = rect.width;
-          svgHeight = rect.height;
-        }
-      }
-    } catch (e) {
-      // 何か取れなければ、表示寸法から推定
-      const rect = svg.getBoundingClientRect();
-      svgWidth = rect.width;
-      svgHeight = rect.height;
-    }
-
-    if (!svgWidth || !svgHeight) {
-      // 最低限のフォールバック値
-      svgWidth = 800;
-      svgHeight = 1000;
-    }
-
-    // --- jsPDF の初期化（A4 縦 / pt 単位） --- //
-    const pdf = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
-    const pageWidth = pdf.internal.pageSize.getWidth();
-    const pageHeight = pdf.internal.pageSize.getHeight();
-
-    // --- 比率を維持してスケール計算 --- //
-    const scale = Math.min(pageWidth / svgWidth, pageHeight / svgHeight);
-    const renderWidth = svgWidth * scale;
-    const renderHeight = svgHeight * scale;
-
-    // 中央配置オフセット（pt）
-    const xOffset = (pageWidth - renderWidth) / 2;
-    const yOffset = (pageHeight - renderHeight) / 2;
-
-    // --- SVG を画像に変換して追加 --- //
-    const svgData = new XMLSerializer().serializeToString(svg);
-
-    // 背景白を入れたい場合（透明だと見づらい時）
-    let svgString = svgData;
-    if (!/fill="#ffffff"/i.test(svgString)) {
-      // 小さな挿入 — <svg ...> の直後に白矩形を追加
-      svgString = svgString.replace(/<svg([^>]*)>/, `<svg$1><rect width="100%" height="100%" fill="#ffffff"/>`);
-    }
-
-    const blob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const img = new Image();
-
-    // CORS 対策（iPadでの読み込み安定化）
-    img.crossOrigin = "anonymous";
-
-    img.onload = function () {
+    // === PDF生成（比率維持） ===
+    document.getElementById("pdfBtn").addEventListener("click", async () => {
       try {
-        // ここでは canvas を使わずに直接 addImage(img...) を使う（多くの環境で動作する）
-        // ただし、一部ブラウザでは画像オブジェクトを直接 addImage に渡せないため canvas 経由の手段も用意
-        const useDirect = false; // false の場合は下の canvas フローへ
-        if (useDirect && pdf.addImage.length) {
-          pdf.addImage(img, "PNG", xOffset, yOffset, renderWidth, renderHeight);
+        const svg = container.querySelector("svg");
+        if (!svg) return logStatus("楽譜がまだありません。");
+
+        logStatus("PDF生成中...");
+
+        const rect = svg.getBoundingClientRect();
+        const svgWidth = rect.width;
+        const svgHeight = rect.height;
+
+        const pdf = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
+        const pageWidth = pdf.internal.pageSize.getWidth();
+        const pageHeight = pdf.internal.pageSize.getHeight();
+        const scale = Math.min(pageWidth / svgWidth, pageHeight / svgHeight);
+        const renderWidth = svgWidth * scale;
+        const renderHeight = svgHeight * scale;
+        const xOffset = (pageWidth - renderWidth) / 2;
+        const yOffset = (pageHeight - renderHeight) / 2;
+
+        const svgData = new XMLSerializer().serializeToString(svg);
+        const blob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+
+        img.onload = function(){
+          const canvas = document.createElement("canvas");
+          const DPR = 2;
+          canvas.width = renderWidth * DPR;
+          canvas.height = renderHeight * DPR;
+          const ctx = canvas.getContext("2d");
+          ctx.scale(DPR, DPR);
+          ctx.drawImage(img, 0, 0, renderWidth, renderHeight);
+          const imgData = canvas.toDataURL("image/png", 1.0);
+          pdf.addImage(imgData, "PNG", xOffset, yOffset, renderWidth, renderHeight);
           pdf.save("score.pdf");
           URL.revokeObjectURL(url);
           logStatus("PDF保存完了");
-          return;
-        }
+        };
+        img.onerror = ()=>logStatus("SVG画像化失敗");
+        img.src = url;
 
-        // Canvas を使う安全なフロー（レンダリング比を維持）
-        const canvas = document.createElement("canvas");
-        // canvasのピクセルは pt 変換を考慮して余裕を持たせる（高解像度）
-        const DPR = 2; // device pixel ratio 的に 2 倍で描く（必要なら 3 に）
-        canvas.width = Math.ceil(renderWidth * DPR);
-        canvas.height = Math.ceil(renderHeight * DPR);
-        const ctx = canvas.getContext("2d");
-        // スケールして描画（画像をキャンバスに引き伸ばすが、レンダリング幅/高さは比率に合わせている）
-        ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-        ctx.drawImage(img, 0, 0, renderWidth, renderHeight);
-
-        const imgData = canvas.toDataURL("image/png", 1.0);
-        pdf.addImage(imgData, "PNG", xOffset, yOffset, renderWidth, renderHeight);
-        pdf.save("score.pdf");
-        URL.revokeObjectURL(url);
-        logStatus("PDF保存完了");
-      } catch (err) {
-        console.error(err);
-        logStatus("PDF生成で内部エラーが起きました");
-        URL.revokeObjectURL(url);
-      }
-    };
-
-    img.onerror = function (err) {
-      console.error(err);
-      URL.revokeObjectURL(url);
-      logStatus("SVGを画像に変換できませんでした（imgロード失敗）");
-    };
-
-    img.src = url;
-
-  } catch (e) {
-    console.error(e);
-    logStatus("PDF生成エラー: " + e);
+      } catch(e){ logStatus("PDF生成エラー: "+e); }
+    });
   }
-});
-
   </script>
 </body>
 </html>
