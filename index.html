@@ -27,8 +27,11 @@
   <script src="https://cdn.jsdelivr.net/npm/opensheetmusicdisplay@1.7.6/build/opensheetmusicdisplay.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
-  <script>
-    window.addEventListener("load", () => {
+<script>
+const statusEl = document.getElementById("status");
+function logStatus(s){ statusEl.textContent = new Date().toLocaleTimeString() + " — " + s; }
+
+window.addEventListener("load", () => {
   logStatus("ページ読み込み完了。ライブラリ検出ループ開始...");
 
   const checkLib = setInterval(() => {
@@ -41,12 +44,6 @@
     }
   }, 700);
 });
-
-  const statusEl = document.getElementById("status");
-  function logStatus(s){ statusEl.textContent = new Date().toLocaleTimeString() + " — " + s; }
-
-  logStatus("OSMDライブラリのロード確認中...");
-
   async function initApp(){
     const container = document.getElementById("scoreContainer");
    const { jsPDF } = window.jspdf;
