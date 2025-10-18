@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MusicXML ドレミ自動付与ツール（和音対応）</title>
+<title>MusicXML ドレミ自動付与ツール（単音+和音対応）</title>
 <style>
 body {
   font-family: sans-serif;
@@ -32,7 +32,7 @@ button:hover { background: #005ea6; }
 </style>
 </head>
 <body>
-<h1>🎵 MusicXML ドレミ付与（オクターブ＋和音対応＋サイズ調整）</h1>
+<h1>🎵 MusicXML ドレミ付与（単音＋和音対応＋サイズ調整）</h1>
 <p>MusicXML ファイルを選択してください。</p>
 <input type="file" id="fileInput" accept=".xml,.musicxml" />
 <button id="processBtn">ドレミ付きXMLを生成</button>
@@ -52,7 +52,6 @@ function toDoremi(step, alter, octave) {
   return name + supers;
 }
 
-/** メイン処理 */
 document.getElementById("processBtn").onclick = () => {
   const file = document.getElementById("fileInput").files[0];
   if (!file) return alert("MusicXMLファイルを選択してください。");
@@ -63,29 +62,13 @@ document.getElementById("processBtn").onclick = () => {
     const xmlDoc = parser.parseFromString(e.target.result, "text/xml");
     const notes = xmlDoc.getElementsByTagName("note");
 
-    let chordCount = 0;
-    let group = [];
+    let chordGroup = [];
 
-    for (let i = 0; i < notes.length; i++) {
-      const n = notes[i];
-      const isChord = n.getElementsByTagName("chord").length > 0;
+    function flushChordGroup() {
+      if (chordGroup.length === 0) return;
 
-      if (!isChord) {
-        // 前の和音を処理
-        if (group.length > 1) applyLyrics(group);
-        group = [n];
-      } else {
-        group.push(n);
-      }
-
-      // 最後のnoteなら残りを処理
-      if (i === notes.length - 1 && group.length) applyLyrics(group);
-    }
-
-    /** 和音1セットごとにドレミ付与 */
-    function applyLyrics(noteGroup) {
-      const count = noteGroup.length;
-      noteGroup.forEach((noteNode, idx) => {
+      const count = chordGroup.length;
+      chordGroup.forEach((noteNode, idx) => {
         const pitch = noteNode.getElementsByTagName("pitch")[0];
         if (!pitch) return;
         const step = pitch.getElementsByTagName("step")[0]?.textContent;
@@ -95,12 +78,11 @@ document.getElementById("processBtn").onclick = () => {
 
         const lyric = xmlDoc.createElement("lyric");
         lyric.setAttribute("number", idx + 1);
-
         const text = xmlDoc.createElement("text");
         text.textContent = lyricText;
         lyric.appendChild(text);
 
-        // ▼ 和音数に応じたサイズ調整（1音→100%、2音→85%、3音→75%、4音以上→65%）
+        // 和音の数でフォントサイズ調整
         const size = Math.max(65, 100 - (count - 1) * 15);
         const font = xmlDoc.createElement("font");
         font.setAttribute("font-size", size + "%");
@@ -108,14 +90,28 @@ document.getElementById("processBtn").onclick = () => {
 
         noteNode.appendChild(lyric);
       });
+      chordGroup = [];
     }
 
-    // 出力
+    // すべてのノートを走査
+    for (let i = 0; i < notes.length; i++) {
+      const n = notes[i];
+      const isChord = n.getElementsByTagName("chord").length > 0;
+
+      if (!isChord) {
+        flushChordGroup(); // 直前の和音を処理
+        chordGroup = [n];  // 新しいグループ開始（単音もグループ扱い）
+      } else {
+        chordGroup.push(n); // 同一タイミングに追加
+      }
+    }
+    flushChordGroup(); // 最後のグループも処理
+
+    // 出力処理
     const serializer = new XMLSerializer();
     const output = serializer.serializeToString(xmlDoc);
-
-    // プレビュー＆ダウンロードリンク作成
     document.getElementById("preview").textContent = output.substring(0, 2000) + "\n...\n";
+
     const blob = new Blob([output], { type: "application/xml" });
     const url = URL.createObjectURL(blob);
     const link = document.getElementById("downloadLink");
