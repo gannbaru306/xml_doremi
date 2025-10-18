@@ -45,7 +45,7 @@
 
   async function initApp(){
     const container = document.getElementById("scoreContainer");
-    window.jsPDF = window.jspdf?.jsPDF || window.jsPDF;
+   const { jsPDF } = window.jspdf;
 
     const osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay(container, {
       backend: "svg",
