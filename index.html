@@ -170,9 +170,9 @@
 
 document.getElementById("pdfBtn").addEventListener("click", async () => {
   const svg = container.querySelector("svg");
-  if (!svg) return logStatus("まだ楽譜がありません。");
+  if (!svg) return log("まだ楽譜がありません。");
 
-  logStatus("PDFを生成中（高画質・比率維持）...");
+  log("PDFを生成中（高画質・比率維持）...");
 
   // SVGサイズの取得
   const vb = svg.viewBox?.baseVal;
@@ -188,7 +188,7 @@ document.getElementById("pdfBtn").addEventListener("click", async () => {
 
   img.onload = () => {
     const { jsPDF } = window.jspdf || {};
-    if (!jsPDF) return logStatus("jsPDFが読み込まれていません。");
+    if (!jsPDF) return log("jsPDFが読み込まれていません。");
     const pdf = new jsPDF({ unit: "pt", format: "a4", orientation: "portrait" });
 
     const pageW = pdf.internal.pageSize.getWidth();
@@ -200,7 +200,7 @@ document.getElementById("pdfBtn").addEventListener("click", async () => {
     const renderH = svgH * scale;
 
     // 高解像度レンダリング
-    const DPR = 4; // ← ここで画質調整（3〜5まで上げてもOK）
+    const DPR = 4;
     const canvas = document.createElement("canvas");
     canvas.width = renderW * DPR;
     canvas.height = renderH * DPR;
@@ -208,12 +208,10 @@ document.getElementById("pdfBtn").addEventListener("click", async () => {
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
     ctx.drawImage(img, 0, 0, renderW, renderH);
 
-    const imgData = canvas.toDataURL("image/png", 1.0);
-
-    // ページ分割（途中で切れないよう正確にスライス）
-    let y = 0;
+    // 分割描画
     const pageRatio = pageH / renderH;
     const totalPages = Math.ceil(1 / pageRatio);
+    log(`ページ分割数: ${totalPages}`);
 
     for (let i = 0; i < totalPages; i++) {
       if (i > 0) pdf.addPage();
@@ -225,7 +223,7 @@ document.getElementById("pdfBtn").addEventListener("click", async () => {
       sctx.drawImage(
         canvas,
         0,
-        y * DPR,
+        i * pageH * DPR,
         canvas.width,
         slice.height,
         0,
@@ -236,15 +234,14 @@ document.getElementById("pdfBtn").addEventListener("click", async () => {
 
       const sliceData = slice.toDataURL("image/png", 1.0);
       pdf.addImage(sliceData, "PNG", 0, 0, pageW, pageH);
-      y += pageH / scale;
     }
 
     pdf.save("score_highres.pdf");
     URL.revokeObjectURL(url);
-    logStatus("PDF保存完了！（比率・画質OK）");
+    log("PDF保存完了");
   };
 
-  img.onerror = () => logStatus("SVG画像の読み込みに失敗しました。");
+  img.onerror = () => log("SVG画像の読み込みに失敗しました。");
   img.src = url;
 });
 
