@@ -44,7 +44,6 @@ button:hover { background: #005ea6; }
 <pre id="preview"></pre>
 
 <script>
-/** ドレミ変換 + オクターブ上付き数字 */
 function toDoremi(step, alter, octave) {
   const base = {C:"ド", D:"レ", E:"ミ", F:"ファ", G:"ソ", A:"ラ", B:"シ"};
   let name = base[step] || step;
@@ -61,10 +60,8 @@ document.getElementById("processBtn").onclick = () => {
   const reader = new FileReader();
   reader.onload = e => {
     const parser = new DOMParser();
-    const xmlDoc = parser.parseFromString(e.target.result, "application/xml");
-
-    const ns = xmlDoc.documentElement.namespaceURI;
-    const notes = xmlDoc.getElementsByTagNameNS(ns, "note");
+    const xmlDoc = parser.parseFromString(e.target.result, "text/xml");
+    const notes = xmlDoc.getElementsByTagName("note");
 
     let chordGroup = [];
 
@@ -72,69 +69,57 @@ document.getElementById("processBtn").onclick = () => {
       if (chordGroup.length === 0) return;
 
       const count = chordGroup.length;
-
       chordGroup.forEach((noteNode, idx) => {
-        const pitch = noteNode.getElementsByTagNameNS(ns, "pitch")[0];
+        const pitch = noteNode.getElementsByTagName("pitch")[0];
         if (!pitch) return;
 
-        const step = pitch.getElementsByTagNameNS(ns, "step")[0]?.textContent;
-        const alter = parseInt(pitch.getElementsByTagNameNS(ns, "alter")[0]?.textContent || 0);
-        const octave = parseInt(pitch.getElementsByTagNameNS(ns, "octave")[0]?.textContent || 4);
+        const step = pitch.getElementsByTagName("step")[0]?.textContent;
+        const alter = parseInt(pitch.getElementsByTagName("alter")[0]?.textContent || 0);
+        const octave = parseInt(pitch.getElementsByTagName("octave")[0]?.textContent || 4);
 
-        const lyricText = toDoremi(step, alter, octave);
-
-        // lyric（名前空間付きで生成）
-        const lyric = xmlDoc.createElementNS(ns, "lyric");
+        const lyric = xmlDoc.createElement("lyric");
         lyric.setAttribute("number", idx + 1);
 
-        const text = xmlDoc.createElementNS(ns, "text");
-        text.textContent = lyricText;
+        const text = xmlDoc.createElement("text");
+        text.textContent = toDoremi(step, alter, octave);
         lyric.appendChild(text);
 
-        // 和音数でフォントサイズ調整
-        const size = Math.max(65, 100 - (count - 1) * 15);
-        const font = xmlDoc.createElementNS(ns, "font");
-        font.setAttribute("font-size", size + "%");
+        const font = xmlDoc.createElement("font");
+        font.setAttribute("font-size", Math.max(65, 100 - (count - 1) * 15) + "%");
         lyric.appendChild(font);
 
         noteNode.appendChild(lyric);
       });
-
       chordGroup = [];
     }
 
-    // すべての note を走査
     for (let i = 0; i < notes.length; i++) {
       const n = notes[i];
-      const isChord = n.getElementsByTagNameNS(ns, "chord").length > 0;
+      const isChord = n.getElementsByTagName("chord").length > 0;
 
+      // 単音も和音もすべて chordGroup に入れて flush で処理
       if (!isChord) {
-        flushChordGroup();     // 前の和音を確定
-        chordGroup = [n];      // 新グループ開始
+        flushChordGroup();
+        chordGroup = [n];
       } else {
-        chordGroup.push(n);    // 同時和音
+        chordGroup.push(n);
       }
     }
-    flushChordGroup(); // 最後の和音も処理
+    flushChordGroup(); // 最後のグループも処理
 
-    // XML 書き出し
-    const serializer = new XMLSerializer();
-    const output = serializer.serializeToString(xmlDoc);
-
-    document.getElementById("preview").textContent =
-      output.substring(0, 2000) + "\n...\n";
+    const output = new XMLSerializer().serializeToString(xmlDoc);
+    document.getElementById("preview").textContent = output.substring(0, 2000) + "\n...\n";
 
     const blob = new Blob([output], { type: "application/xml" });
-    const url = URL.createObjectURL(blob);
     const link = document.getElementById("downloadLink");
-    link.href = url;
+    link.href = URL.createObjectURL(blob);
     link.download = "score_doremi.xml";
     link.style.display = "inline";
     link.textContent = "score_doremi.xml をダウンロード";
   };
-
   reader.readAsText(file);
 };
 </script>
+
 </body>
 </html>
