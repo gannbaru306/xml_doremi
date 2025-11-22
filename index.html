@@ -109,6 +109,7 @@ document.getElementById("processBtn").onclick = () => {
       }
 
       // 単音にもドレミを追加（flushChordGroupではなく即処理）
+     /*
       if (!isChord) {
         const pitch = n.getElementsByTagName("pitch")[0];
         if (!pitch) continue;
@@ -134,6 +135,7 @@ document.getElementById("processBtn").onclick = () => {
 
         n.appendChild(lyric);
       }
+      */
     }
     flushChordGroup();
 
