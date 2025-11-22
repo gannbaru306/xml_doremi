@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>XML_doremi</title>
+<title>MusicXML ドレミ自動付与ツール（完全版/和音対応/名前空間対応）</title>
 <style>
 body {
   font-family: sans-serif;
@@ -28,21 +28,23 @@ button:hover { background: #005ea6; }
   margin-top: 1em;
   white-space: pre-wrap;
   font-size: 0.9em;
+  max-height: 400px;
+  overflow-y: scroll;
 }
 </style>
 </head>
 <body>
-<h1>MusicXML ドレミ付与 by gannbaru306</h1>
+<h1>🎵 MusicXML ドレミ付与（完全版・和音対応・名前空間対応）</h1>
 <p>MusicXML ファイルを選択してください。</p>
 <input type="file" id="fileInput" accept=".xml,.musicxml" />
 <button id="processBtn">ドレミ付きXMLを生成</button>
 
-<h2>出力</h2>
+<h2>出力プレビュー</h2>
 <a id="downloadLink" style="display:none;">score_doremi.xml をダウンロード</a>
 <pre id="preview"></pre>
 
 <script>
-// ステップ(A~G)→ドレミ変換 + オクターブ上付き数字
+/** ドレミ変換 + オクターブ上付き数字 */
 function toDoremi(step, alter, octave) {
   const base = {C:"ド", D:"レ", E:"ミ", F:"ファ", G:"ソ", A:"ラ", B:"シ"};
   let name = base[step] || step;
@@ -59,70 +61,68 @@ document.getElementById("processBtn").onclick = () => {
   const reader = new FileReader();
   reader.onload = e => {
     const parser = new DOMParser();
-    const xmlDoc = parser.parseFromString(e.target.result, "text/xml");
-    const notes = xmlDoc.getElementsByTagName("note");
+    const xmlDoc = parser.parseFromString(e.target.result, "application/xml");
+
+    const ns = xmlDoc.documentElement.namespaceURI;
+    const notes = xmlDoc.getElementsByTagNameNS(ns, "note");
 
     let chordGroup = [];
 
-    // chordGroup をまとめてドレミ付与
     function flushChordGroup() {
       if (chordGroup.length === 0) return;
 
       const count = chordGroup.length;
+
       chordGroup.forEach((noteNode, idx) => {
-        const pitch = noteNode.getElementsByTagName("pitch")[0];
+        const pitch = noteNode.getElementsByTagNameNS(ns, "pitch")[0];
         if (!pitch) return;
-        const step = pitch.getElementsByTagName("step")[0]?.textContent;
-        const alter = parseInt(pitch.getElementsByTagName("alter")[0]?.textContent || 0);
-        const octave = parseInt(pitch.getElementsByTagName("octave")[0]?.textContent || 4);
 
-        // tie の stop がある場合は「ー」、それ以外はドレミ
-        const tieTags = Array.from(noteNode.getElementsByTagName("tie"));
-        const isTiedStop = tieTags.some(t => t.getAttribute("type") === "stop");
-        const lyricText = isTiedStop ? "ー" : toDoremi(step, alter, octave);
+        const step = pitch.getElementsByTagNameNS(ns, "step")[0]?.textContent;
+        const alter = parseInt(pitch.getElementsByTagNameNS(ns, "alter")[0]?.textContent || 0);
+        const octave = parseInt(pitch.getElementsByTagNameNS(ns, "octave")[0]?.textContent || 4);
 
-        const lyric = xmlDoc.createElement("lyric");
+        const lyricText = toDoremi(step, alter, octave);
+
+        // lyric（名前空間付きで生成）
+        const lyric = xmlDoc.createElementNS(ns, "lyric");
         lyric.setAttribute("number", idx + 1);
-        lyric.setAttribute("default-y", 15 + idx * 10);
 
-        const text = xmlDoc.createElement("text");
+        const text = xmlDoc.createElementNS(ns, "text");
         text.textContent = lyricText;
         lyric.appendChild(text);
 
-        const fontSize = Math.max(65, 100 - (count - 1) * 15);
-        const font = xmlDoc.createElement("font");
-        font.setAttribute("font-size", fontSize + "%");
+        // 和音数でフォントサイズ調整
+        const size = Math.max(65, 100 - (count - 1) * 15);
+        const font = xmlDoc.createElementNS(ns, "font");
+        font.setAttribute("font-size", size + "%");
         lyric.appendChild(font);
 
         noteNode.appendChild(lyric);
-
-        // コメント出力（コンソールに残しておく）
-        console.log(`Note: step=${step}, alter=${alter}, octave=${octave}, text="${lyricText}", groupSize=${count}`);
       });
 
-      chordGroup = []; // グループクリア
+      chordGroup = [];
     }
 
-    // ノートを走査
+    // すべての note を走査
     for (let i = 0; i < notes.length; i++) {
-  const n = notes[i];
-  const isChord = n.getElementsByTagName("chord").length > 0;
+      const n = notes[i];
+      const isChord = n.getElementsByTagNameNS(ns, "chord").length > 0;
 
-  if (!isChord) {
-    // 直前のグループを処理して、新しいグループ開始
-    flushChordGroup();
-    chordGroup = [n]; // 最初のノートもグループに入れる
-  } else {
-    // chordタグがある＝直前の音と和音
-    chordGroup.push(n);
-  }
-}
-flushChordGroup();
+      if (!isChord) {
+        flushChordGroup();     // 前の和音を確定
+        chordGroup = [n];      // 新グループ開始
+      } else {
+        chordGroup.push(n);    // 同時和音
+      }
+    }
+    flushChordGroup(); // 最後の和音も処理
 
-    // 出力表示＆ダウンロード
+    // XML 書き出し
     const serializer = new XMLSerializer();
     const output = serializer.serializeToString(xmlDoc);
-    document.getElementById("preview").textContent = output.substring(0, 2000) + "\n...\n";
+
+    document.getElementById("preview").textContent =
+      output.substring(0, 2000) + "\n...\n";
 
     const blob = new Blob([output], { type: "application/xml" });
     const url = URL.createObjectURL(blob);
@@ -132,6 +132,7 @@ flushChordGroup();
     link.style.display = "inline";
     link.textContent = "score_doremi.xml をダウンロード";
   };
+
   reader.readAsText(file);
 };
 </script>
