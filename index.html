@@ -105,13 +105,19 @@ document.getElementById("processBtn").onclick = () => {
 
     // ノートを走査
     for (let i = 0; i < notes.length; i++) {
-      const n = notes[i];
-      const isChord = n.getElementsByTagName("chord").length > 0;
+  const n = notes[i];
+  const isChord = n.getElementsByTagName("chord").length > 0;
 
-      if (!isChord) flushChordGroup(); // 新しいグループ開始
-      chordGroup.push(n);
-    }
-    flushChordGroup(); // 残り処理
+  if (!isChord) {
+    // 直前のグループを処理して、新しいグループ開始
+    flushChordGroup();
+    chordGroup = [n]; // 最初のノートもグループに入れる
+  } else {
+    // chordタグがある＝直前の音と和音
+    chordGroup.push(n);
+  }
+}
+flushChordGroup();
 
     // 出力表示＆ダウンロード
     const serializer = new XMLSerializer();
