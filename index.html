@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MusicXML ドレミ自動付与ツール by 306</title>
+<title>XML_doremi</title>
 <style>
 body {
   font-family: sans-serif;
@@ -32,7 +32,7 @@ button:hover { background: #005ea6; }
 </style>
 </head>
 <body>
-<h1>MusicXML ドレミ付与 by gannbaru306</h1>
+<h1>🎵 MusicXML ドレミ付与（単音＋和音＋tie対応＋コメント）</h1>
 <p>MusicXML ファイルを選択してください。</p>
 <input type="file" id="fileInput" accept=".xml,.musicxml" />
 <button id="processBtn">ドレミ付きXMLを生成</button>
@@ -42,13 +42,12 @@ button:hover { background: #005ea6; }
 <pre id="preview"></pre>
 
 <script>
-// ステップ(A~G)とドレミの対応
+// ステップ(A~G)→ドレミ変換 + オクターブ上付き数字
 function toDoremi(step, alter, octave) {
   const base = {C:"ド", D:"レ", E:"ミ", F:"ファ", G:"ソ", A:"ラ", B:"シ"};
   let name = base[step] || step;
   if (alter === 1) name += "♯";
   if (alter === -1) name += "♭";
-  // 上付き文字でオクターブ表示
   const supers = String(octave).replace(/[0-9]/g, d => "⁰¹²³⁴⁵⁶⁷⁸⁹"[d]);
   return name + supers;
 }
@@ -63,47 +62,48 @@ document.getElementById("processBtn").onclick = () => {
     const xmlDoc = parser.parseFromString(e.target.result, "text/xml");
     const notes = xmlDoc.getElementsByTagName("note");
 
-    let chordGroup = []; // 和音または単音のグループ
+    let chordGroup = [];
 
-    // chordGroup のノートにまとめてドレミ付与
+    // chordGroup をまとめてドレミ付与
     function flushChordGroup() {
       if (chordGroup.length === 0) return;
 
+      const count = chordGroup.length;
       chordGroup.forEach((noteNode, idx) => {
         const pitch = noteNode.getElementsByTagName("pitch")[0];
         if (!pitch) return;
-
         const step = pitch.getElementsByTagName("step")[0]?.textContent;
         const alter = parseInt(pitch.getElementsByTagName("alter")[0]?.textContent || 0);
         const octave = parseInt(pitch.getElementsByTagName("octave")[0]?.textContent || 4);
 
-        // tie で止まる音は「ー」、それ以外はドレミ
+        // tie の stop がある場合は「ー」、それ以外はドレミ
         const tieTags = Array.from(noteNode.getElementsByTagName("tie"));
         const isTiedStop = tieTags.some(t => t.getAttribute("type") === "stop");
         const lyricText = isTiedStop ? "ー" : toDoremi(step, alter, octave);
 
         const lyric = xmlDoc.createElement("lyric");
-        lyric.setAttribute("number", idx + 1); // 将来複数行対応
-        lyric.setAttribute("default-y", 15 + idx * 10); // 縦位置ずらし
+        lyric.setAttribute("number", idx + 1);
+        lyric.setAttribute("default-y", 15 + idx * 10);
 
         const text = xmlDoc.createElement("text");
         text.textContent = lyricText;
         lyric.appendChild(text);
 
-        const size = Math.max(65, 100 - (chordGroup.length - 1) * 15); // 和音ならフォント縮小
+        const fontSize = Math.max(65, 100 - (count - 1) * 15);
         const font = xmlDoc.createElement("font");
-        font.setAttribute("font-size", size + "%");
+        font.setAttribute("font-size", fontSize + "%");
         lyric.appendChild(font);
 
         noteNode.appendChild(lyric);
 
-        // コメントを残しておく（将来利用可能）
-        // console.log(`Added lyric "${lyricText}" to note: step=${step}, alter=${alter}, octave=${octave}`);
+        // コメント出力（コンソールに残しておく）
+        console.log(`Note: step=${step}, alter=${alter}, octave=${octave}, text="${lyricText}", groupSize=${count}`);
       });
 
-      chordGroup = []; // グループをクリア
+      chordGroup = []; // グループクリア
     }
 
+    // ノートを走査
     for (let i = 0; i < notes.length; i++) {
       const n = notes[i];
       const isChord = n.getElementsByTagName("chord").length > 0;
@@ -111,9 +111,9 @@ document.getElementById("processBtn").onclick = () => {
       if (!isChord) flushChordGroup(); // 新しいグループ開始
       chordGroup.push(n);
     }
-    flushChordGroup(); // 残りを処理
+    flushChordGroup(); // 残り処理
 
-    // 出力表示＆ダウンロードリンク
+    // 出力表示＆ダウンロード
     const serializer = new XMLSerializer();
     const output = serializer.serializeToString(xmlDoc);
     document.getElementById("preview").textContent = output.substring(0, 2000) + "\n...\n";
