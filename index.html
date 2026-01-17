@@ -52,6 +52,22 @@ function toDoremi(step, alter, octave) {
   const supers = String(octave).replace(/[0-9]/g, d => "⁰¹²³⁴⁵⁶⁷⁸⁹"[d]);
   return name + supers;
 }
+function isTieStop(noteNode) {
+  // <tie> のチェック
+  const ties = noteNode.getElementsByTagName("tie");
+  for (let i = 0; i < ties.length; i++) {
+    if (ties[i].getAttribute("type") === "stop") return true;
+  }
+
+  // <tied> のチェック
+  const tieds = noteNode.getElementsByTagName("tied");
+  for (let i = 0; i < tieds.length; i++) {
+    if (tieds[i].getAttribute("type") === "stop") return true;
+  }
+
+  return false;
+}
+
 
 document.getElementById("processBtn").onclick = () => {
   const file = document.getElementById("fileInput").files[0];
@@ -81,7 +97,15 @@ document.getElementById("processBtn").onclick = () => {
         lyric.setAttribute("number", idx + 1);
 
         const text = xmlDoc.createElement("text");
-        text.textContent = toDoremi(step, alter, octave);
+        let lyricText = "";
+
+if (isTieStop(noteNode)) {
+  lyricText = "ー";  // タイ後半
+} else {
+  lyricText = toDoremi(step, alter, octave);
+}
+
+text.textContent = lyricText;
         lyric.appendChild(text);
 
         const font = xmlDoc.createElement("font");
