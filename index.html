@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MusicXML ドレミ自動付与ツール（単音+和音対応）</title>
+<title>XML</title>
 <style>
 body {
   font-family: sans-serif;
@@ -28,21 +28,22 @@ button:hover { background: #005ea6; }
   margin-top: 1em;
   white-space: pre-wrap;
   font-size: 0.9em;
+  max-height: 400px;
+  overflow-y: scroll;
 }
 </style>
 </head>
 <body>
-<h1>🎵 MusicXML ドレミ付与（単音＋和音対応＋サイズ調整）</h1>
+<h1>XMLドレミ付与 by gannbaru306</h1>
 <p>MusicXML ファイルを選択してください。</p>
 <input type="file" id="fileInput" accept=".xml,.musicxml" />
 <button id="processBtn">ドレミ付きXMLを生成</button>
 
-<h2>出力</h2>
+<h2>出力プレビュー</h2>
 <a id="downloadLink" style="display:none;">score_doremi.xml をダウンロード</a>
 <pre id="preview"></pre>
 
 <script>
-/** ドレミ変換 + オクターブ上付き数字 */
 function toDoremi(step, alter, octave) {
   const base = {C:"ド", D:"レ", E:"ミ", F:"ファ", G:"ソ", A:"ラ", B:"シ"};
   let name = base[step] || step;
@@ -51,6 +52,22 @@ function toDoremi(step, alter, octave) {
   const supers = String(octave).replace(/[0-9]/g, d => "⁰¹²³⁴⁵⁶⁷⁸⁹"[d]);
   return name + supers;
 }
+function isTieStop(noteNode) {
+  // <tie> のチェック
+  const ties = noteNode.getElementsByTagName("tie");
+  for (let i = 0; i < ties.length; i++) {
+    if (ties[i].getAttribute("type") === "stop") return true;
+  }
+
+  // <tied> のチェック
+  const tieds = noteNode.getElementsByTagName("tied");
+  for (let i = 0; i < tieds.length; i++) {
+    if (tieds[i].getAttribute("type") === "stop") return true;
+  }
+
+  return false;
+}
+
 
 document.getElementById("processBtn").onclick = () => {
   const file = document.getElementById("fileInput").files[0];
@@ -71,21 +88,28 @@ document.getElementById("processBtn").onclick = () => {
       chordGroup.forEach((noteNode, idx) => {
         const pitch = noteNode.getElementsByTagName("pitch")[0];
         if (!pitch) return;
+
         const step = pitch.getElementsByTagName("step")[0]?.textContent;
         const alter = parseInt(pitch.getElementsByTagName("alter")[0]?.textContent || 0);
         const octave = parseInt(pitch.getElementsByTagName("octave")[0]?.textContent || 4);
-        const lyricText = toDoremi(step, alter, octave);
 
         const lyric = xmlDoc.createElement("lyric");
         lyric.setAttribute("number", idx + 1);
+
         const text = xmlDoc.createElement("text");
-        text.textContent = lyricText;
+        let lyricText = "";
+
+if (isTieStop(noteNode)) {
+  lyricText = "ー";  // タイ後半
+} else {
+  lyricText = toDoremi(step, alter, octave);
+}
+
+text.textContent = lyricText;
         lyric.appendChild(text);
 
-        // 和音の数でフォントサイズ調整
-        const size = Math.max(65, 100 - (count - 1) * 15);
         const font = xmlDoc.createElement("font");
-        font.setAttribute("font-size", size + "%");
+        font.setAttribute("font-size", Math.max(65, 100 - (count - 1) * 15) + "%");
         lyric.appendChild(font);
 
         noteNode.appendChild(lyric);
@@ -93,29 +117,26 @@ document.getElementById("processBtn").onclick = () => {
       chordGroup = [];
     }
 
-    // すべてのノートを走査
     for (let i = 0; i < notes.length; i++) {
       const n = notes[i];
       const isChord = n.getElementsByTagName("chord").length > 0;
 
+      // 単音も和音もすべて chordGroup に入れて flush で処理
       if (!isChord) {
-        flushChordGroup(); // 直前の和音を処理
-        chordGroup = [n];  // 新しいグループ開始（単音もグループ扱い）
+        flushChordGroup();
+        chordGroup = [n];
       } else {
-        chordGroup.push(n); // 同一タイミングに追加
+        chordGroup.push(n);
       }
     }
     flushChordGroup(); // 最後のグループも処理
 
-    // 出力処理
-    const serializer = new XMLSerializer();
-    const output = serializer.serializeToString(xmlDoc);
+    const output = new XMLSerializer().serializeToString(xmlDoc);
     document.getElementById("preview").textContent = output.substring(0, 2000) + "\n...\n";
 
     const blob = new Blob([output], { type: "application/xml" });
-    const url = URL.createObjectURL(blob);
     const link = document.getElementById("downloadLink");
-    link.href = url;
+    link.href = URL.createObjectURL(blob);
     link.download = "score_doremi.xml";
     link.style.display = "inline";
     link.textContent = "score_doremi.xml をダウンロード";
@@ -123,5 +144,6 @@ document.getElementById("processBtn").onclick = () => {
   reader.readAsText(file);
 };
 </script>
+
 </body>
 </html>
